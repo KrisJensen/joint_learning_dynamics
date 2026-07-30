@@ -8,8 +8,11 @@ from learning_dynamics import (
     DPConfig,
     Params,
     State,
+    build_dp_workspace,
     load_dp_result,
+    rollout_policies,
     save_dp_result,
+    solve_dp_workspace,
     solve_online_dp,
     solve_switching_dp,
     value_at,
@@ -98,6 +101,80 @@ def test_dp_can_optimize_K_at_fixed_M(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="fixed DP M"):
         DPConfig(**{**config.__dict__, "M": params.T + 1}).validate(params)
+
+
+def test_workspace_reuses_actions_across_horizons_and_switch_costs(
+    tmp_path: Path,
+) -> None:
+    params = Params(
+        T=2,
+        M=1,
+        K=1,
+        delta_on=0.5,
+        delta_off=0.5,
+        delta_switch=0.5,
+        gh_order=8,
+    )
+    config = DPConfig(
+        horizon=2.0,
+        step_size=1.0,
+        rho_points=3,
+        rho_max=0.8,
+        K_max=2,
+        M=1,
+        fixed_wm=True,
+        fixed_rho_me=0.5,
+    )
+    workspace = build_dp_workspace(params, config)
+    full = solve_dp_workspace(
+        workspace,
+        variant="switching",
+        horizon=2.0,
+        delta_switch=0.5,
+    )
+    short = solve_dp_workspace(
+        workspace,
+        variant="switching",
+        horizon=1.0,
+        delta_switch=0.5,
+    )
+    short_layers = len(short.times)
+    np.testing.assert_allclose(full.values[:, :short_layers], short.values)
+    np.testing.assert_array_equal(full.policy[:, :short_layers], short.policy)
+
+    other_cost = solve_dp_workspace(
+        workspace,
+        variant="switching",
+        horizon=2.0,
+        delta_switch=1.0,
+    )
+    k1 = solve_dp_workspace(
+        workspace,
+        variant="switching",
+        horizon=2.0,
+        delta_switch=1.0,
+        allowed_K=(1,),
+    )
+    assert full.tables[0] is other_cost.tables[0]
+    assert other_cost.tables[-1] is k1.tables[-1]
+    assert {
+        action.K
+        for action in k1.actions
+        if action.kind == "online"
+    } == {1}
+    assert set(workspace.switch_tables) == {0.5, 1.0}
+    path = tmp_path / "restricted_workspace_result.npz"
+    save_dp_result(path, k1)
+    loaded = load_dp_result(path)
+    assert loaded.actions == k1.actions
+    assert len(loaded.tables) == len(k1.tables)
+
+    rows = dynamic_programming.rollout_policy(
+        full,
+        State(0.1, 0.5, 0.1),
+        horizon=1.0,
+    )
+    assert rows[0]["remaining_horizon"] == pytest.approx(1.0)
 
 
 def test_static_dp_caches_interpolations_and_matches_scalar_backups(
@@ -211,3 +288,71 @@ def test_switching_rollout_scores_actions_at_continuous_state() -> None:
 
     assert rows[0]["action"] == "switch"
     assert rows[0]["value"] == pytest.approx(2.0)
+
+
+def test_batched_table_rollouts_match_analytical_reference(
+    monkeypatch,
+) -> None:
+    params = Params(
+        T=2,
+        M=1,
+        K=1,
+        delta_on=0.5,
+        delta_off=0.5,
+        delta_switch=0.5,
+        gh_order=8,
+    )
+    config = DPConfig(
+        horizon=2.0,
+        step_size=1.0,
+        rho_points=5,
+        rho_max=0.8,
+        K_max=2,
+        M=1,
+        fixed_wm=True,
+        fixed_rho_me=0.5,
+    )
+    result = solve_switching_dp(params, config)
+    states = [
+        State(0.1, 0.5, 0.05),
+        State(0.4, 0.5, 0.2),
+        State(0.7, 0.5, 0.35),
+    ]
+    analytical = rollout_policies(
+        result,
+        states,
+        outcome_method="analytical",
+    )
+    table = rollout_policies(result, states, outcome_method="table")
+
+    assert [
+        [row["action"] for row in rollout]
+        for rollout in table
+    ] == [
+        [row["action"] for row in rollout]
+        for rollout in analytical
+    ]
+    analytical_terminal = np.asarray(
+        [
+            [rollout[-1][name] for name in ("rho_se", "rho_me", "rho_sm")]
+            for rollout in analytical
+        ]
+    )
+    table_terminal = np.asarray(
+        [
+            [rollout[-1][name] for name in ("rho_se", "rho_me", "rho_sm")]
+            for rollout in table
+        ]
+    )
+    np.testing.assert_allclose(table_terminal, analytical_terminal, atol=0.02)
+
+    def reject_analytical_outcome(*args, **kwargs):
+        raise AssertionError("table rollout called the analytical dynamics")
+
+    monkeypatch.setattr(
+        dynamic_programming,
+        "_continuous_outcome",
+        reject_analytical_outcome,
+    )
+    automatic = rollout_policies(result, states)
+    assert automatic == table

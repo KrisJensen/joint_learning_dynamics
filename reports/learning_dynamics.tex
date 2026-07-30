@@ -1,0 +1,674 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{titlesec}
+\usepackage[compress]{natbib}
+\usepackage{authblk}
+\usepackage{amsmath,amssymb,bm,mathtools}
+\usepackage{braket}
+\usepackage[table]{xcolor}
+\usepackage{url}
+\usepackage{float}
+\definecolor{dred}{rgb}{0.6,0,0}
+\definecolor{dblue}{rgb}{0,0,0.6}
+\usepackage[colorlinks=true, linkcolor=dblue, citecolor=dred, urlcolor=dblue]{hyperref}
+\usepackage[nameinlink]{cleveref}
+\usepackage[margin=1in]{geometry}
+\renewcommand\b\bm
+\newcommand*\sgn[1]{\operatorname{sgn}\!\left({#1}\right)}
+\newcommand*\E{\mathbb E}
+\newcommand*\I{\mathbf 1}
+\newcommand*\dd{\mathrm d}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5.5pt}
+\creflabelformat{equation}{#2\textup{#1}#3}
+
+\title{\Large{Learning planned actions with a world model in elapsed time}}
+
+\author[1]{\normalsize \bfseries Kristopher T.\ Jensen}
+\affil[1]{\small Sainsbury Wellcome Centre, University College London, London, UK}
+\date{\vspace*{-2.0em}
+\normalsize kris.torp.jensen@gmail.com
+}
+
+
+\begin{document}
+\maketitle
+
+\section{Problem}
+
+We consider a linear environment, a student, and a world model (WM). The environment weights are denoted by $w_e$, the student weights by $w_s$, and the WM weights by $w_m$. Inputs are independent standard Gaussian vectors,
+\begin{align}
+x_t &\sim \mathcal N(0,I_d).
+\end{align}
+The associated pre-activations are
+\begin{align}
+U &= \frac{w_e^\top x}{\sqrt d}, & H &= \frac{w_s^\top x}{\sqrt d}, & V &= \frac{w_m^\top x}{\sqrt d}.
+\end{align}
+The environment and WM labels are
+\begin{align}
+y &= \sgn{U}, & \hat y &= \sgn{V}.
+\end{align}
+
+We define the norms and raw overlaps
+\begin{align}
+Q_s &= \frac{w_s^\top w_s}{d}, & Q_m &= \frac{w_m^\top w_m}{d}, & Q_e &= \frac{w_e^\top w_e}{d}, \\
+R_{se} &= \frac{w_s^\top w_e}{d}, & R_{me} &= \frac{w_m^\top w_e}{d}, & R_{sm} &= \frac{w_s^\top w_m}{d}.
+\end{align}
+We use spherical learning dynamics, so
+\begin{align}
+Q_s &= Q_m = Q_e = 1.
+\end{align}
+The state is described by the pairwise correlations
+\begin{align}
+\rho_{se} &= R_{se}, & \rho_{me} &= R_{me}, & \rho_{sm} &= R_{sm}.
+\end{align}
+Equivalently,
+\begin{align}
+\begin{pmatrix}U \\
+H \\
+V\end{pmatrix} &\sim \mathcal N\left(0,\begin{pmatrix}1 & \rho_{se} & \rho_{me} \\
+\rho_{se} & 1 & \rho_{sm} \\
+\rho_{me} & \rho_{sm} & 1\end{pmatrix}\right).
+\end{align}
+
+The student has a stochastic base policy
+\begin{align}
+\pi_{w_s}(a=1\mid x) &= \sigma(H), & \sigma(s) &= \frac{1}{1+e^{-s}},
+\end{align}
+and a planner that samples imagined actions with inverse temperature $\beta$,
+\begin{align}
+\pi_p(\hat a=1\mid x) &= \sigma(\beta H).
+\end{align}
+The planner samples $K\geq1$ candidate action sequences of length $T$. The WM evaluates a prefix of length $M$, where
+\begin{align}
+1 &\leq M\leq T.
+\end{align}
+It assigns candidate $k$ the binary predicted prefix reward
+\begin{align}
+\hat R_{{\rm wm},k}^{(M)} &= \prod_{t=1}^M \I\{\hat a_{k,t}=\hat y_t\}.
+\end{align}
+The selected plan is sampled uniformly from the set of maximizers,
+\begin{align}
+k^\star &\sim {\rm Unif}\left(\arg\max_{1\leq k\leq K}\hat R_{{\rm wm},k}^{(M)}\right), & a_t &= \hat a_{k^\star,t}.
+\end{align}
+Thus the evaluated prefix of the executed plan is best according to the WM, with uniform tie breaking. The remaining $T-M$ actions are executed from the same candidate but do not affect selection.
+
+A sampled action agrees with the WM label with probability
+\begin{align}
+\mathbb P(\hat a=\hat y\mid x) &= \sigma(\beta Y), & Y &= \hat yH=\sgn{V}H.
+\end{align}
+For a fixed input sequence, the probability that one sampled plan is WM-correct over the evaluated prefix is
+\begin{align}
+p_m^{(M)}(x_{1:M}) &= \prod_{t=1}^M \sigma(\beta Y_t).
+\end{align}
+The probability that at least one of the $K$ plans has a WM-correct prefix is
+\begin{align}
+\Psi_K(p_m^{(M)}) &= 1-\left(1-p_m^{(M)}\right)^K \\
+&= \sum_{j=1}^K(-1)^{j+1}\binom Kj\prod_{t=1}^M\sigma(\beta Y_t)^j.
+\end{align}
+On this branch the executed prefix equals the WM labels. If no candidate has a WM-correct prefix, all candidates are tied and the executed plan is a uniformly sampled candidate conditioned to have a WM-zero prefix. In either case, candidate selection leaves the suffix distribution unchanged.
+
+The sequence reward $R_{\rm env}$ is one if every physically executed action agrees with the environment label and zero otherwise.
+
+A real action sequence has unit elapsed cost. Let $\delta_{\rm on}$ be the elapsed cost of simulating one complete length-$T$ sequence online, $\delta_{\rm off}$ the elapsed cost of one complete offline replay, and $\delta_{\rm switch}$ the elapsed cost of switching between online and offline modes. Their inverses are
+\begin{align}
+\tau_x &= \delta_x^{-1}, & x &\in\{{\rm on},{\rm off},{\rm switch}\},
+\end{align}
+so $\tau_x$ is the ratio of unit action cost to the corresponding thinking or switching cost. Evaluating only a length-$M$ prefix takes $(M/T)\delta_{\rm on}$ time. Therefore one microscopic online update has elapsed cost
+\begin{align}
+c_{K,M}^{\rm on} &= 1+K\frac{M}{T}\delta_{\rm on},
+\end{align}
+whereas one microscopic offline update has elapsed cost
+\begin{align}
+c^{\rm off} &= \delta_{\rm off}.
+\end{align}
+Because one microscopic update changes a normalized overlap by order $d^{-1}$, we use rescaled elapsed time
+\begin{align}
+t &= \frac{t_{\rm phys}}{d}.
+\end{align}
+One online update advances $t$ by $c_{K,M}^{\rm on}/d$, and one offline update advances it by $\delta_{\rm off}/d$.
+
+\section{Linearised learning rules}
+
+For a single action sampled from the student's base policy, the true likelihood score is
+\begin{align}
+\nabla_{w_s}\log \pi_{w_s}(a\mid x) &= \left[\frac{a}{2}-\frac12\tanh\left(\frac{H}{2}\right)\right]\frac{x}{\sqrt d}.
+\end{align}
+Its linearisation around $H=0$ is
+\begin{align}
+\nabla_{w_s}\log \pi_{w_s}(a\mid x) &\simeq \left(\frac{a}{2}-\frac{H}{4}\right)\frac{x}{\sqrt d}.
+\end{align}
+Likewise, for supervised logistic learning from a binary target $\tilde y$, the true WM score and its linearisation are
+\begin{align}
+\nabla_{w_m}\log \sigma(\tilde yV) &= \left[\frac{\tilde y}{2}-\frac12\tanh\left(\frac{V}{2}\right)\right]\frac{x}{\sqrt d} \\
+&\simeq \left(\frac{\tilde y}{2}-\frac{V}{4}\right)\frac{x}{\sqrt d}.
+\end{align}
+More generally, the linear field terms may be written as $-\lambda_sH$ and $-\lambda_mV$. They primarily regularize the weight magnitudes. Because the dynamics below explicitly project the weights back to the sphere, most of this radial regularization is removed by the spherical correction and has little effect on the correlation dynamics. We therefore set
+\begin{align}
+\lambda_s &= \lambda_m=0,
+\end{align}
+and retain only the zero-field score terms $a/2$ and $\tilde y/2$. The student rule is a local surrogate score and does not differentiate through the complete candidate-sampling and plan-selection distribution.
+
+Online student learning is reinforcement learning from a noisy environment reward. Offline student learning is reinforcement learning from WM-predicted rewards. WM learning is supervised learning from noisy environment labels. We now define these three rules.
+
+During online learning, the student observes a noisy reward $R_e\in\{0,1\}$. The reward channel is
+\begin{align}
+\mathbb P(R_e=1\mid R_{\rm env}=1) &= 1-\epsilon, & \mathbb P(R_e=1\mid R_{\rm env}=0) &= \epsilon,
+\end{align}
+so
+\begin{align}
+\mathbb E[R_e\mid R_{\rm env}] &= \epsilon+\delta_\epsilon R_{\rm env}, & \delta_\epsilon &= 1-2\epsilon.
+\end{align}
+The reward-independent two-factor rule has rate $\eta_{2f}$, while the reward-modulated three-factor rule has rate $\eta_{3f}$. We absorb the common factor $1/2$ from the zero-field score into the definitions of all learning rates, so the update rules below contain $a_t$ and $\tilde y_t$ directly. The online student update is
+\begin{align}
+\Delta w_s^{\rm on} &= \frac{\eta_{2f}+\eta_{3f}R_e}{T\sqrt d}\sum_{t=1}^T a_tx_t.
+\end{align}
+
+During offline learning, the student uses the greedy action
+\begin{align}
+a_t^g &= \sgn{H_t},
+\end{align}
+and receives the WM-predicted reward
+\begin{align}
+\hat R_{\rm off} &= \prod_{t=1}^T I_{sm,t}, & I_{sm,t} &= \I\{H_tV_t>0\}.
+\end{align}
+The offline reinforcement-learning update is
+\begin{align}
+\Delta w_s^{\rm off} &= \frac{\eta_{\rm off}}{T\sqrt d}\hat R_{\rm off}\sum_{t=1}^T a_t^gx_t.
+\end{align}
+
+For supervised WM learning, the environment label is independently flipped with probability $p_{\rm flip}$:
+\begin{align}
+\tilde y &= \xi y, & \xi &= \begin{cases}+1,&\text{with probability }1-p_{\rm flip}, \\
+-1,&\text{with probability }p_{\rm flip},\end{cases} & \mu_{\rm flip} &= \mathbb E[\xi]=1-2p_{\rm flip}.
+\end{align}
+The supervised WM update is
+\begin{align}
+\Delta w_m &= \frac{\eta_{\rm wm}}{T\sqrt d}\sum_{t=1}^T \tilde y_tx_t.
+\end{align}
+
+\section{Useful scalar fields and one-step functions}
+
+Define the oriented fields
+\begin{align}
+Z &= yH=\sgn{U}H, & Y &= \hat yH=\sgn{V}H, & W &= yV=\sgn{U}V,
+\end{align}
+and the agreement indicators
+\begin{align}
+I_{me} &= \I\{UV>0\}, & I_{se} &= \I\{UH>0\}=\I\{Z>0\}, & I_{sm} &= \I\{HV>0\}=\I\{Y>0\}.
+\end{align}
+For a binary action $a\in\{-1,1\}$, let
+\begin{align}
+S(a) &= ay,
+\end{align}
+with the tagged actions
+\begin{align}
+a^{\rm wm} &= \sgn{V}, & a^e &= \sgn{U}=y, & a^g &= \sgn{H}.
+\end{align}
+After absorbing the score factor into the learning rates, the tagged one-step functions are
+\begin{align}
+F_e(a) &= |U|S(a), & F_s(a) &= S(a)Z, \\
+F_m(a) &= S(a)W, & F_q(a) &= 1.
+\end{align}
+We write $F^{\rm wm}=F(a^{\rm wm})$, $F^e=F(a^e)$, and $F^g=F(a^g)$.
+
+For a single planner sample,
+\begin{align}
+\bar a_\beta(H) &= \mathbb E[\hat a\mid H]=2\sigma(\beta H)-1=\tanh\left(\frac{\beta H}{2}\right),
+\end{align}
+and
+\begin{align}
+\bar F_e &= U\bar a_\beta(H), & \bar F_s &= H\bar a_\beta(H), \\
+\bar F_m &= V\bar a_\beta(H), & \bar F_q &= 1.
+\end{align}
+The student-WM covariance also uses
+\begin{align}
+F_\times(a) &= \mathbb E_\xi[a\tilde y]=\mu_{\rm flip}S(a), & \bar F_\times &= \mu_{\rm flip}\bar a_\beta(H)y.
+\end{align}
+\section{Sequence averages}
+
+For $j\geq 0$, define
+\begin{align}
+s_j(U,H,V)=\sigma(\beta Y)^j,
+\end{align}
+with $s_0=1$. The probability that a sampled action agrees with the environment label is
+\begin{align}
+r_e(U,H)=\sigma(\beta Z).
+\end{align}
+The basic planner moment is
+\begin{align}
+A_j=\mathbb E[s_j].
+\end{align}
+For an indicator $I$, define the WM-weighted moment
+\begin{align}
+P_j^I=\mathbb E[I s_j].
+\end{align}
+For any tagged one-step function $f(U,H,V)$ and sequence length $\ell\geq1$, define
+\begin{align}
+\mathcal A_{j,\ell}[f] =A_j^{\ell-1}\mathbb E[f s_j],
+\end{align}
+and
+\begin{align}
+\mathcal P_{j,\ell}^I[f] =\left(P_j^I\right)^{\ell-1}\mathbb E[I f s_j].
+\end{align}
+The factor $\ell-1$ appears because one time step is tagged by the weight update, while the remaining $\ell-1$ time steps only contribute through sequence-level events. Online prefix selection uses $\ell=M$, whereas the offline full-sequence reward uses $\ell=T$.
+
+For moments in which the selected plan is environment-correct while the other sampled plans contribute powers of WM-correctness, define
+\begin{align}
+J_j=\mathbb E[r_e s_j],
+\end{align}
+and
+\begin{align}
+\mathcal J_{j,\ell}[f] =J_j^{\ell-1}\mathbb E[f r_e s_j].
+\end{align}
+In particular, $J_0=\mathbb E[r_e]$ is the probability that an ordinary planner-sampled action is environment-correct.
+
+Finally define the binomial coefficients
+\begin{align}
+c_j^+=(-1)^{j+1}\binom Kj, \qquad j=1,\ldots,K,
+\end{align}
+and
+\begin{align}
+\bar c_j^-=(-1)^j\binom{K-1}{j}, \qquad j=0,\ldots,K-1.
+\end{align}
+The coefficients $c_j^+$ expand the event that at least one candidate prefix is WM-correct. The coefficients $\bar c_j^-$ expand the event that the other $K-1$ candidate prefixes are not WM-correct when a uniformly chosen WM-zero-prefix plan is tagged.
+
+\section{Online student aggregate moments}
+
+Partial evaluation separates tagged positions into the evaluated prefix $t\leq M$ and the unevaluated suffix $t>M$. Candidate selection changes the prefix distribution but leaves the suffix distribution of the selected candidate unchanged.
+
+For a tagged prefix position and any family of tagged functions $F$, define the reward-independent selected-prefix average
+\begin{align}
+\mathcal U_{\rm pre}^{(M)}[F] &= \sum_{j=1}^K c_j^+\mathcal A_{j,M}[F^{\rm wm}] + \sum_{j=0}^{K-1}\bar c_j^- \left(\mathcal A_{j,M}[\bar F]-\mathcal A_{j+1,M}[F^{\rm wm}]\right).
+\end{align}
+The first sum is the branch with at least one WM-correct prefix. The second sum is the branch where no candidate prefix is WM-correct. In that branch the tagged selected prefix is a sampled prefix conditioned to have WM reward zero: the term $\mathcal A_{j,M}[\bar F]$ averages over the sampled action, and $\mathcal A_{j+1,M}[F^{\rm wm}]$ removes the case where the tagged plan itself has a WM-correct prefix.
+
+The probability that the selected prefix is environment-correct is
+\begin{align}
+\Gamma_{K,M}^{\rm pre} = \sum_{j=1}^K c_j^+\left(P_j^{I_{me}}\right)^M + \sum_{j=0}^{K-1}\bar c_j^- \left[J_j^M-\left(P_{j+1}^{I_{me}}\right)^M\right].
+\end{align}
+The full true environment reward additionally requires all $T-M$ suffix actions to be correct, so
+\begin{align}
+\Gamma_{K,M} =\Gamma_{K,M}^{\rm pre}J_0^{T-M}.
+\end{align}
+
+For a reward-weighted tagged prefix position, the suffix contributes the independent success factor $J_0^{T-M}$. Define
+\begin{align}
+\mathcal H_{\rm pre}^{(M)}[F] &= J_0^{T-M} \Bigg[ \sum_{j=1}^K c_j^+\mathcal P_{j,M}^{I_{me}}[F^{\rm wm}] \\
+&\qquad\qquad+ \sum_{j=0}^{K-1}\bar c_j^- \left(\mathcal J_{j,M}[F^e]-\mathcal P_{j+1,M}^{I_{me}}[F^{\rm wm}]\right) \Bigg].
+\end{align}
+On the WM-correct-prefix branch, the selected prefix is environment-correct only if the WM and environment agree at every evaluated step. On the WM-zero-prefix branch, an environment-correct selected prefix uses the environment action $a^e$ at the tagged step; subtracting $\mathcal P_{j+1,M}^{I_{me}}[F^{\rm wm}]$ enforces that the selected prefix is not also WM-correct.
+
+For a tagged suffix position, selection depends only on the prefix, so the reward-independent average is
+\begin{align}
+\mathcal U_{\rm suf}^{(M)}[F]=\mathbb E[\bar F].
+\end{align}
+When $M<T$, the reward-weighted suffix average is
+\begin{align}
+\mathcal H_{\rm suf}^{(M)}[F] = \Gamma_{K,M}^{\rm pre} J_0^{T-M-1} \mathbb E[F^e r_e].
+\end{align}
+This expression requires an environment-correct selected prefix, environment-correctness of the other $T-M-1$ suffix positions, and an environment-correct action at the tagged suffix position. The suffix contribution is absent when $M=T$.
+
+A uniformly tagged position in the student update lies in the prefix with probability $M/T$ and in the suffix with probability $(T-M)/T$. Therefore the full reward-independent and true-reward-weighted online operators are
+\begin{align}
+\mathcal U_{\rm on}[F] = \frac{M}{T}\mathcal U_{\rm pre}^{(M)}[F] +\frac{T-M}{T}\mathcal U_{\rm suf}^{(M)}[F],
+\end{align}
+and
+\begin{align}
+\mathcal H_{\rm on}[F] = \frac{M}{T}\mathcal H_{\rm pre}^{(M)}[F] +\frac{T-M}{T}\mathcal H_{\rm suf}^{(M)}[F],
+\end{align}
+where the second term is understood to be zero when $M=T$.
+
+The noisy reward-weighted online operator is therefore
+\begin{align}
+\mathcal R_{\rm on}[F] =\epsilon\mathcal U_{\rm on}[F] +\delta_\epsilon\mathcal H_{\rm on}[F],
+\end{align}
+because
+\begin{align}
+\mathbb E[R_e f] =\epsilon\mathbb E[f]+(1-2\epsilon)\mathbb E[R_{\rm env} f].
+\end{align}
+
+The reward-independent online student moments are
+\begin{align}
+B_0 &= \mathcal U_{\rm on}[F_e], \\
+C_0 &= \mathcal U_{\rm on}[F_s], \\
+E_0 &= \mathcal U_{\rm on}[F_m], \\
+D_0 &= \mathcal U_{\rm on}[F_q], \\
+X_0 &= \mathcal U_{\rm on}[F_\times].
+\end{align}
+The reward-dependent online student moments are
+\begin{align}
+B_R &= \mathcal R_{\rm on}[F_e], \\
+C_R &= \mathcal R_{\rm on}[F_s], \\
+E_R &= \mathcal R_{\rm on}[F_m], \\
+D_R &= \mathcal R_{\rm on}[F_q], \\
+X_R &= \mathcal R_{\rm on}[F_\times].
+\end{align}
+All of these quantities are functions only of the three correlations $(\rho_{se},\rho_{me},\rho_{sm})$ and the scalar parameters $(T,M,K,\beta,\epsilon,p_{\rm flip})$.
+
+\section{Offline student aggregate moments}
+
+Offline learning uses the greedy action $a^g=\sgn{H}$ and the WM-predicted reward
+\begin{align}
+\hat R_{\rm off}=\prod_{t=1}^T I_{sm,t}.
+\end{align}
+No planning terms appear. For any tagged function $F$, define
+\begin{align}
+\mathcal M_{\rm off}[F] =\mathcal P_{0,T}^{I_{sm}}[F^g].
+\end{align}
+The offline student moments are
+\begin{align}
+B_{\rm off} &= \mathcal M_{\rm off}[F_e], \\
+C_{\rm off} &= \mathcal M_{\rm off}[F_s], \\
+E_{\rm off} &= \mathcal M_{\rm off}[F_m], \\
+D_{\rm off} &= \mathcal M_{\rm off}[F_q], \\
+X_{\rm off} &= \mathcal M_{\rm off}[F_\times].
+\end{align}
+The moment $B_{\rm off}$ controls drift toward the environment under offline replay, while $E_{\rm off}$ controls drift toward the WM.
+
+
+
+\section{Elapsed-time joint dynamics}
+
+The environment undergoes isotropic random drift on the sphere. For any fixed unit vector $u$,
+\begin{align}
+\left.\frac{\dd}{\dd t}\frac{u^\top w_e}{d}\right|_{\rm drift} &= -\eta_e\frac{u^\top w_e}{d}.
+\end{align}
+The drift terms therefore are
+\begin{align}
+\left.\dot\rho_{se}\right|_{\rm drift} &= -\eta_e\rho_{se}, & \left.\dot\rho_{me}\right|_{\rm drift} &= -\eta_e\rho_{me}, & \left.\dot\rho_{sm}\right|_{\rm drift} &= 0.
+\end{align}
+Learning contributions are divided by the elapsed cost of a microscopic update, whereas these drift terms are not, because $\eta_e$ is already a rate per unit elapsed time.
+
+With $F_q=1$, the online quadratic moments simplify to
+\begin{align}
+D_0 &= 1, & D_R &= \bar r_{K,M}, & \bar r_{K,M} &= \epsilon+\delta_\epsilon\Gamma_{K,M}.
+\end{align}
+Define
+\begin{align}
+L_0 &= B_0-\rho_{se}C_0, & L_R &= B_R-\rho_{se}C_R, \\
+K_0 &= E_0-\rho_{sm}C_0, & K_R &= E_R-\rho_{sm}C_R,
+\end{align}
+and
+\begin{align}
+Q_{2f,3f} &= \eta_{2f}^2D_0+\left(2\eta_{2f}\eta_{3f}+\eta_{3f}^2\right)D_R.
+\end{align}
+For the supervised WM update,
+\begin{align}
+b_e &= \mu_{\rm flip}\sqrt{\frac{2}{\pi}}, & b_s &= \mu_{\rm flip}\rho_{se}\sqrt{\frac{2}{\pi}}, \\
+c_m &= \mu_{\rm flip}\rho_{me}\sqrt{\frac{2}{\pi}}, & d_m &= 1.
+\end{align}
+Hence
+\begin{align}
+L_m &= b_e-\rho_{me}c_m=\mu_{\rm flip}\sqrt{\frac{2}{\pi}}\left(1-\rho_{me}^2\right), \\
+K_m &= b_s-\rho_{sm}c_m=\mu_{\rm flip}\sqrt{\frac{2}{\pi}}\left(\rho_{se}-\rho_{sm}\rho_{me}\right).
+\end{align}
+
+The spherical online dynamics are
+\begin{align}
+\dot\rho_{se}^{\rm on} &= \frac{1}{c_{K,M}^{\rm on}}\left[\eta_{2f}L_0+\eta_{3f}L_R-\frac{\rho_{se}}{2T}Q_{2f,3f}\right]-\eta_e\rho_{se}, \\
+\dot\rho_{me}^{\rm on} &= \frac{1}{c_{K,M}^{\rm on}}\left[\eta_{\rm wm}L_m-\frac{\eta_{\rm wm}^2}{2T}\rho_{me}\right]-\eta_e\rho_{me}, \\
+\dot\rho_{sm}^{\rm on} &= \frac{1}{c_{K,M}^{\rm on}}\left[\eta_{2f}K_0+\eta_{3f}K_R-\frac{\rho_{sm}}{2T}Q_{2f,3f}+\eta_{\rm wm}K_m-\frac{\eta_{\rm wm}^2}{2T}\rho_{sm}+\frac{\eta_{\rm wm}}{T}\left(\eta_{2f}X_0+\eta_{3f}X_R\right)\right].
+\end{align}
+
+During offline replay the WM is fixed. Define
+\begin{align}
+K_{\rm off} &= E_{\rm off}-\rho_{sm}C_{\rm off}.
+\end{align}
+The spherical offline dynamics are
+\begin{align}
+\dot\rho_{se}^{\rm off} &= \frac{1}{\delta_{\rm off}}\left[\eta_{\rm off}\left(B_{\rm off}-\rho_{se}C_{\rm off}\right)-\frac{\eta_{\rm off}^2}{2T}\rho_{se}D_{\rm off}\right]-\eta_e\rho_{se}, \\
+\dot\rho_{sm}^{\rm off} &= \frac{1}{\delta_{\rm off}}\left[\eta_{\rm off}K_{\rm off}-\frac{\eta_{\rm off}^2}{2T}\rho_{sm}D_{\rm off}\right], \\
+\dot\rho_{me}^{\rm off} &= -\eta_e\rho_{me}.
+\end{align}
+\section{Optimal planning temperature}
+
+The planning temperature controls how candidate imagined actions are sampled before the WM partially evaluates them. We write the inverse temperature as $\beta\geq 0$ and the corresponding planning temperature as
+\begin{align}
+\Theta_p=\beta^{-1},
+\end{align}
+with the conventions $\Theta_p=\infty$ when $\beta=0$ and $\Theta_p=0$ when $\beta=\infty$. This section chooses the temperature that maximises the probability that planning produces a prefix deemed successful by the WM. The optimization is instantaneous: the correlations are held fixed, and $\delta_{\rm on}$, $\delta_{\rm off}$, and $\eta_e$ affect the elapsed-time dynamics but not the per-planning success probability at fixed state.
+
+For a fixed input prefix, define
+\begin{align}
+q_t(\beta)=\sigma(\beta Y_t), \qquad p_m^{(M)}(\beta)=\prod_{t=1}^M q_t(\beta).
+\end{align}
+The probability that at least one of the $K$ sampled plans is deemed successful by the WM is
+\begin{align}
+\Psi_K(\beta\mid x_{1:M}) =1-\left(1-p_m^{(M)}(\beta)\right)^K.
+\end{align}
+Since $\Psi_K$ is a strictly increasing function of $p_m^{(M)}$ whenever $0<p_m^{(M)}<1$, the fixed-prefix optimum is obtained by maximizing $p_m^{(M)}$. Its logarithmic derivative is
+\begin{align}
+\frac{\partial}{\partial\beta}\log p_m^{(M)}(\beta) &= \sum_{t=1}^M \frac{1}{q_t(\beta)} \frac{\partial q_t(\beta)}{\partial\beta}  \\
+&= \sum_{t=1}^M Y_t\left[1-\sigma(\beta Y_t)\right] = \sum_{t=1}^M Y_t\sigma(-\beta Y_t).
+\end{align}
+Moreover,
+\begin{align}
+\frac{\partial^2}{\partial\beta^2}\log p_m^{(M)}(\beta) = -\sum_{t=1}^M Y_t^2\sigma(\beta Y_t)\sigma(-\beta Y_t) \leq 0.
+\end{align}
+Thus, for a fixed prefix, any interior optimum is the unique solution of
+\begin{align}
+\boxed{ \sum_{t=1}^M Y_t\sigma(-\beta^\star Y_t)=0. }
+\end{align}
+The corresponding optimal planning temperature is $\Theta_p^\star=1/\beta^\star$, with boundary optima allowed at $\beta^\star=0$ or $\beta^\star=\infty$.
+
+For the macroscopic theory, the relevant objective is the typical WM-prefix-success probability averaged over the Gaussian inputs. Using the sequence moments defined above,
+\begin{align}
+P_{\rm WM}^{(M)}(\beta) &= \mathbb E\left[ 1-\left(1-\prod_{t=1}^M\sigma(\beta Y_t)\right)^K \right] \\
+&= \sum_{j=1}^K c_j^+ A_j(\beta)^M,
+\end{align}
+where
+\begin{align}
+A_j(\beta)=\mathbb E\left[\sigma(\beta Y)^j\right].
+\end{align}
+Differentiating gives
+\begin{align}
+\frac{\dd P_{\rm WM}^{(M)}}{\dd\beta} = M\sum_{j=1}^K c_j^+ A_j(\beta)^{M-1} A_j'(\beta),
+\end{align}
+with
+\begin{align}
+A_j'(\beta) = j\mathbb E\left[ Y\sigma(\beta Y)^j\sigma(-\beta Y) \right].
+\end{align}
+Therefore any interior optimum for the typical planning success probability satisfies
+\begin{align}
+\boxed{ \sum_{j=1}^K c_j^+ A_j(\beta^\star)^{M-1} j\mathbb E\left[ Y\sigma(\beta^\star Y)^j\sigma(-\beta^\star Y) \right] =0. }
+\end{align}
+This is a one-dimensional root condition. The global optimum over $\beta\geq 0$ is obtained by comparing all interior roots with the two boundaries $\beta=0$ and $\beta=\infty$.
+
+
+
+\section{Optimal learning rates}
+
+The correlations and all moment integrals are held fixed while a learning rate is optimized. The formulas below give unconstrained interior stationary points. If rates are constrained to be nonnegative or bounded, the corresponding boundaries must also be checked. Elapsed costs and environment drift scale the achieved drift but do not change these stationary rates for fixed $(K,M)$.
+
+\subsection{Online two-factor and three-factor rates}
+
+The online rates maximize the instantaneous student-environment drift. Since $D_0=1$ and $D_R=\bar r_{K,M}$, the stationarity conditions are
+\begin{align}
+\begin{pmatrix}1 & \bar r_{K,M} \\
+\bar r_{K,M} & \bar r_{K,M}\end{pmatrix}\begin{pmatrix}\eta_{2f} \\
+\eta_{3f}\end{pmatrix} &= \frac{T}{\rho_{se}}\begin{pmatrix}L_0 \\
+L_R\end{pmatrix}.
+\end{align}
+When $0<\bar r_{K,M}<1$ and $\rho_{se}\neq0$, the interior solution is
+\begin{align}
+\eta_{2f}^\star &= \frac{T}{\rho_{se}}\frac{L_0-L_R}{1-\bar r_{K,M}}, \\
+\eta_{3f}^\star &= \frac{T}{\rho_{se}}\left[\frac{L_R}{\bar r_{K,M}}-\frac{L_0-L_R}{1-\bar r_{K,M}}\right].
+\end{align}
+It is a local maximum when the quadratic curvature is positive definite; a sufficient condition is $\rho_{se}>0$ and $0<\bar r_{K,M}<1$.
+
+For comparison, the axis-constrained optima are
+\begin{align}
+\eta_{2f}^{\star\,|\,\eta_{3f}=0} &= \frac{T}{\rho_{se}}L_0, & \eta_{3f}^{\star\,|\,\eta_{2f}=0} &= \frac{T}{\rho_{se}}\frac{L_R}{\bar r_{K,M}}.
+\end{align}
+These are separate constrained optimizations, not components of the joint optimum.
+
+\subsection{Offline student rate}
+
+The offline rate maximizes drift toward the WM. Any interior optimum satisfies
+\begin{align}
+\eta_{\rm off}^\star &= \frac{T}{\rho_{sm}}\frac{K_{\rm off}}{D_{\rm off}}=\frac{T}{\rho_{sm}}\frac{E_{\rm off}-\rho_{sm}C_{\rm off}}{D_{\rm off}}.
+\end{align}
+This is a maximum when $\rho_{sm}D_{\rm off}>0$.
+
+\subsection{World-model rate}
+
+The WM rate maximizes drift toward the environment during online learning. Since $d_m=1$,
+\begin{align}
+\eta_{\rm wm}^\star &= \frac{T}{\rho_{me}}L_m=\frac{T\mu_{\rm flip}}{\rho_{me}}\sqrt{\frac{2}{\pi}}\left(1-\rho_{me}^2\right).
+\end{align}
+This is a maximum when $\rho_{me}>0$. Singular cases such as $\rho_{se}=0$ or $\rho_{me}=0$ must be handled by direct boundary optimization rather than by these divided forms.
+
+\section{Optimal number and depth of online plans}
+
+Planning trades improved selection against elapsed simulation time. Let
+\begin{align}
+\mathcal K &= \{1,2,\ldots,K_{\max}\}, & \mathcal M &= \{1,2,\ldots,T\}.
+\end{align}
+The finite upper bound $K_{\max}$ guarantees that every discrete optimizer below exists. For $(K,M)\in\mathcal K\times\mathcal M$, the elapsed cost is
+\begin{align}
+c_{K,M}^{\rm on} &= 1+K\frac{M}{T}\delta_{\rm on}.
+\end{align}
+The true success probability $\Gamma_{K,M}$ and all learning moments were defined in the online aggregate section, so no second derivation is needed here.
+
+The reward-rate optimum is
+\begin{align}
+(K_{\rm rew}^\star,M_{\rm rew}^\star) &\in \arg\max_{(K,M)\in\mathcal K\times\mathcal M}\frac{\Gamma_{K,M}}{c_{K,M}^{\rm on}}.
+\end{align}
+For noisy observed reward, replace $\Gamma_{K,M}$ by $\bar r_{K,M}=\epsilon+\delta_\epsilon\Gamma_{K,M}$.
+
+For fixed learning rates, define the per-update student-environment learning numerator
+\begin{align}
+\mathcal N_{K,M} &= \eta_{2f}L_0(K,M)+\eta_{3f}L_R(K,M)-\frac{\rho_{se}}{2T}Q_{2f,3f}(K,M).
+\end{align}
+The drift-rate optimum is
+\begin{align}
+(K_{\rm drift}^\star,M_{\rm drift}^\star) &\in \arg\max_{(K,M)\in\mathcal K\times\mathcal M}\frac{\mathcal N_{K,M}}{c_{K,M}^{\rm on}}.
+\end{align}
+If the learning rates are reoptimized for each pair, replace $\mathcal N_{K,M}$ by
+\begin{align}
+\mathcal N_{K,M}^\star &= \max_{\eta_{2f},\eta_{3f}}\mathcal N_{K,M}.
+\end{align}
+Because the domain is finite, the reliable procedure is to evaluate the exact objective over all allowed pairs. No unimodality or one-step stopping condition is assumed.
+
+\section{Dynamic programming for future online reward}
+
+We now allow planning choices to affect future learning. Both $K$ and $M$ are controlled. Define
+\begin{align}
+\Delta &= \texttt{step\_size}>0.
+\end{align}
+The parameter $\Delta$ is the amount of macroscopic time assigned to one unit-cost execution element in a DP step. Each abstract mode is held for $\Delta$ macroscopic update units before a new decision is made. Reducing $\Delta$ shortens every mode and refines the horizon grid uniformly, so $\texttt{step\_size}$ sets the resolution of the entire dynamic-programming analysis and may be chosen arbitrarily small for improved accuracy.
+
+One additional evaluated time step in one imagined plan has relative cost
+\begin{align}
+q &= \frac{\delta_{\rm on}}{T},
+\end{align}
+and therefore contributes $q\Delta$ macroscopic elapsed time in one DP step. We assume
+\begin{align}
+n_{\rm act} &= \frac{1}{q}=\frac{T}{\delta_{\rm on}}\in\mathbb N, & n_{\rm off} &= \frac{\delta_{\rm off}}{q}\in\mathbb N, & n_{\rm switch} &= \frac{\delta_{\rm switch}}{q}\in\mathbb N.
+\end{align}
+The first condition makes the unit action cost commensurate with the elementary simulation cost; the other two state that offline replay and switching costs are integer multiples of $\delta_{\rm on}/T$. The horizon-grid spacing is
+\begin{align}
+\Delta h &= q\Delta.
+\end{align}
+An online mode $(K,M)$, an offline mode, and a switch occupy
+\begin{align}
+\Delta t_{K,M}^{\rm on} &= \left(1+K\frac{M}{T}\delta_{\rm on}\right)\Delta=(n_{\rm act}+KM)\Delta h, \\
+\Delta t^{\rm off} &= \delta_{\rm off}\Delta=n_{\rm off}\Delta h, \\
+\Delta t^{\rm switch} &= \delta_{\rm switch}\Delta=n_{\rm switch}\Delta h.
+\end{align}
+Thus every transition lands exactly on the horizon grid $h_n=n\Delta h$.
+
+For any elapsed-time vector field $F(\boldsymbol\rho)$, let
+\begin{align}
+\varphi_{\Delta t}(\boldsymbol\rho;F)
+\end{align}
+denote the ODE flow over elapsed duration $\Delta t$. A numerical implementation may use
+\begin{align}
+\varphi_{\Delta t}(\boldsymbol\rho;F) &\approx \Pi_{\mathcal D}\left[\boldsymbol\rho+\Delta tF(\boldsymbol\rho)\right],
+\end{align}
+or a higher-order solver. The projection $\Pi_{\mathcal D}$ returns the state to the feasible correlation domain.
+
+Using a left-endpoint approximation, the observed reward accumulated during one online abstract mode is
+\begin{align}
+r_{K,M}^{\rm on}(\boldsymbol\rho;\Delta) &\approx \Delta\bar r_{K,M}(\boldsymbol\rho).
+\end{align}
+For a true-reward objective, replace $\bar r_{K,M}$ by $\Gamma_{K,M}$.
+
+\subsection{Online-only control with fixed WM-environment correlation}
+
+Consider online learning with $\eta_{\rm wm}=0$ and $\rho_{me}=\bar\rho_{me}$ fixed. This reduced model is consistent only if $\eta_e=0$, or if an external mechanism clamps $\rho_{me}$ and offsets environmental decorrelation. We assume one of these conditions throughout this subsection.
+
+The reduced state is
+\begin{align}
+\boldsymbol\rho^{(0)} &= (\rho_{se},\rho_{sm}),
+\end{align}
+with feasible domain
+\begin{align}
+\mathcal D_2(\bar\rho_{me}) &= \left\{(\rho_{se},\rho_{sm}):1+2\rho_{se}\bar\rho_{me}\rho_{sm}-\rho_{se}^2-\bar\rho_{me}^2-\rho_{sm}^2\geq0\right\}.
+\end{align}
+Let $F_{K,M}^{(0)}$ be the reduced online vector field and define
+\begin{align}
+\Phi_{K,M}^{(0)}(\boldsymbol\rho^{(0)}) &= \varphi_{\Delta t_{K,M}^{\rm on}}\left(\boldsymbol\rho^{(0)};F_{K,M}^{(0)}\right).
+\end{align}
+The value function uses $h$ consistently for the remaining horizon. Including the option to stop resolves horizons too short for any online mode:
+\begin{align}
+V^{(0)}(h,\boldsymbol\rho^{(0)}) &= \max\left\{0,\max_{\substack{(K,M)\in\mathcal K\times\mathcal M \\
+\Delta t_{K,M}^{\rm on}\leq h}}\left[r_{K,M}^{\rm on}(\boldsymbol\rho^{(0)},\bar\rho_{me};\Delta)+V^{(0)}\left(h-\Delta t_{K,M}^{\rm on},\Phi_{K,M}^{(0)}(\boldsymbol\rho^{(0)})\right)\right]\right\}.
+\end{align}
+No interpolation is needed in the horizon coordinate because all transition times lie on the grid. On a regular grid over $\mathcal D_2$, the remaining state-space lookup can be implemented with bilinear interpolation. For efficiency, the destination cell indices and interpolation weights can be precomputed for every state-action pair and reused at every horizon value.
+
+\subsection{Joint online-offline control with switching costs}
+
+The full state is
+\begin{align}
+(\boldsymbol\rho,z) &\in \mathcal D_3\times\{{\rm on},{\rm off}\}, & \boldsymbol\rho &= (\rho_{se},\rho_{me},\rho_{sm}),
+\end{align}
+where
+\begin{align}
+\mathcal D_3 &= \left\{\boldsymbol\rho\in[-1,1]^3:1+2\rho_{se}\rho_{me}\rho_{sm}-\rho_{se}^2-\rho_{me}^2-\rho_{sm}^2\geq0\right\}.
+\end{align}
+Let $F_{K,M}^{\rm on}$ be the full online vector field and $F^{\rm off}$ the offline vector field. The transitions are
+\begin{align}
+\Phi_{K,M}^{\rm on}(\boldsymbol\rho) &= \varphi_{\Delta t_{K,M}^{\rm on}}\left(\boldsymbol\rho;F_{K,M}^{\rm on}\right), & \Phi^{\rm off}(\boldsymbol\rho) &= \varphi_{\Delta t^{\rm off}}\left(\boldsymbol\rho;F^{\rm off}\right), \\
+\Phi^{\rm switch}(\boldsymbol\rho,z) &= \left(e^{-\eta_e\Delta t^{\rm switch}}\rho_{se},e^{-\eta_e\Delta t^{\rm switch}}\rho_{me},\rho_{sm},z'\right),
+\end{align}
+where $z'$ is the opposite mode.
+
+The action sets are
+\begin{align}
+\mathcal A_{\rm on} &= \{{\rm switch}\}\cup\{{\rm online}(K,M):(K,M)\in\mathcal K\times\mathcal M\}, & \mathcal A_{\rm off} &= \{{\rm switch},{\rm offline}\}.
+\end{align}
+Their durations, rewards, and transitions are
+\begin{align}
+\Delta t({\rm switch}) &= \Delta t^{\rm switch}, & r({\rm switch}) &= 0, & \Phi({\rm switch}) &= \Phi^{\rm switch}, \\
+\Delta t({\rm online}(K,M)) &= \Delta t_{K,M}^{\rm on}, & r({\rm online}(K,M)) &= r_{K,M}^{\rm on}(\boldsymbol\rho;\Delta), & \Phi({\rm online}(K,M)) &= (\Phi_{K,M}^{\rm on}(\boldsymbol\rho),{\rm on}), \\
+\Delta t({\rm offline}) &= \Delta t^{\rm off}, & r({\rm offline}) &= 0, & \Phi({\rm offline}) &= (\Phi^{\rm off}(\boldsymbol\rho),{\rm off}).
+\end{align}
+The Bellman recursion is
+\begin{align}
+V(h,\boldsymbol\rho,z) &= \max\left\{0,\max_{\substack{a\in\mathcal A_z \\
+\Delta t(a)\leq h}}\left[r(a;\boldsymbol\rho,z)+V\left(h-\Delta t(a),\Phi_a(\boldsymbol\rho,z)\right)\right]\right\}.
+\end{align}
+The outer zero is the stop action and makes the recursion well defined whenever no nontrivial action fits in the remaining horizon. The terminal condition is
+\begin{align}
+V(0,\boldsymbol\rho,z) &= 0.
+\end{align}
+The implementation stores one value table for each mode and fills the horizon grid backward. Since time transitions are exact grid moves, interpolation is confined to the correlation state. A regular Cartesian grid permits trilinear interpolation in $(\rho_{se},\rho_{me},\rho_{sm})$. The transition destination, lower-cell indices, and eight interpolation weights can be precomputed for each feasible grid state and each action. The Bellman sweep then reduces to batched weighted table lookups, which can be vectorized across states and actions. Infeasible grid points may be masked, while off-domain transition states are first projected onto $\mathcal D_3$.
+
+\section{Assumptions and special cases}
+
+The deterministic macroscopic equations assume $d\to\infty$ with $T$, $K_{\max}$, and a chosen positive $\texttt{step\_size}$ fixed; fresh independent Gaussian inputs across time steps and microscopic updates; conditionally independent candidate-action samples; independent reward-channel and label-flip noise; simultaneous student and WM updates evaluated from pre-update fields; and explicit spherical renormalization, or its continuous projection equivalent, after each microscopic update. The time-grid assumptions in the dynamic program are the integer commensurability conditions stated above; decreasing $\texttt{step\_size}$ refines both the ODE integration horizon and the Bellman grid without changing those integer ratios. No uniform large-$d$ claim is made for $K$ growing with $d$.
+
+If $\eta_e=0$, the equations reduce to static-environment dynamics, while elapsed learning rates remain divided by $c_{K,M}^{\rm on}$ or $\delta_{\rm off}$.
+
+If $\delta_{\rm on}=0$, online simulation is free and $c_{K,M}^{\rm on}=1$. The DP grid construction based on $q=\delta_{\rm on}/T$ is then singular and should be replaced by a separately chosen time grid. If $\delta_{\rm off}=0$, offline replay is instantaneous and the elapsed-time continuum limit is likewise singular.
+
+If $M=T$, partial evaluation becomes full-sequence evaluation. If $K=1$, selection cannot change the distribution of the single sampled plan, and
+\begin{align}
+\mathcal U_{\rm on}[F] &= \mathbb E[\bar F].
+\end{align}
+
+If $w_m=w_e$, then $\rho_{me}=1$ and $\rho_{sm}=\rho_{se}$. A WM-correct plan is then environment-correct. If $p_{\rm flip}=1/2$, then $\mu_{\rm flip}=0$ and the WM has no first-order alignment signal. If $\epsilon=1/2$, then $\delta_\epsilon=0$ and the three-factor rule receives no information about the true reward beyond the constant observed-reward rate.
+
+\end{document}
