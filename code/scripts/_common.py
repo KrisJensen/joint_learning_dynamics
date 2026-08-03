@@ -64,10 +64,8 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--eta-e", type=float, default=0.0)
     parser.add_argument("--delta-on", type=float, default=0.1)
     parser.add_argument("--delta-off", type=float, default=0.1)
-    parser.add_argument("--delta-switch", type=float, default=0.1)
     parser.add_argument("--tau-on", type=float, default=None, help="inverse of delta-on")
     parser.add_argument("--tau-off", type=float, default=None, help="inverse of delta-off")
-    parser.add_argument("--tau-switch", type=float, default=None, help="inverse of delta-switch")
     parser.add_argument("--C-A", dest="C_A", type=float, default=0.0)
     parser.add_argument("--C-T", dest="C_T", type=float, default=1.0)
     parser.add_argument("--C-phi", dest="C_phi", type=float, default=0.0)
@@ -127,7 +125,6 @@ def make_params(args, **overrides) -> Params:
         "eta_e": args.eta_e,
         "delta_on": _delta(args.delta_on, args.tau_on, "tau_on"),
         "delta_off": _delta(args.delta_off, args.tau_off, "tau_off"),
-        "delta_switch": _delta(args.delta_switch, args.tau_switch, "tau_switch"),
         "C_A": args.C_A,
         "C_T": args.C_T,
         "C_phi": args.C_phi,
@@ -193,14 +190,19 @@ def with_metadata(records: list[dict], params: Params, **labels) -> list[dict]:
         {
             "config_tau_on": params.tau_on,
             "config_tau_off": params.tau_off,
-            "config_tau_switch": params.tau_switch,
             "schema_version": 1,
         }
     )
     return [{**labels, **metadata, **record} for record in records]
 
 
-def write_records(path: Path, records: list[dict], *, argv=None) -> None:
+def write_records(
+    path: Path,
+    records: list[dict],
+    *,
+    argv=None,
+    metadata: dict | None = None,
+) -> None:
     if not records:
         raise ValueError("no result records were produced")
     path = path.resolve()
@@ -224,6 +226,8 @@ def write_records(path: Path, records: list[dict], *, argv=None) -> None:
         "rows": len(records),
         "columns": fields,
     }
+    if metadata is not None:
+        manifest["metadata"] = metadata
     path.with_suffix(".json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 

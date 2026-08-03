@@ -108,6 +108,34 @@ def test_greedy_training_does_not_force_greedy_planning_evaluation() -> None:
     )
 
 
+def test_individual_action_correctness_matches_greedy_agreement() -> None:
+    state = State(0.4, 1.0, 0.4)
+    params = Params(
+        T=4,
+        M=2,
+        K=1,
+        beta=float("inf"),
+        temperature_mode="constant",
+        gh_order=12,
+    )
+
+    values = observables.observables(state, params)
+    expected = observables.agreement_probability(state.rho_se)
+
+    assert values["prefix_action_correct_probability"] == pytest.approx(
+        expected,
+        abs=5e-7,
+    )
+    assert values["suffix_action_correct_probability"] == pytest.approx(
+        expected,
+        abs=5e-7,
+    )
+    assert values["individual_action_correct_probability"] == pytest.approx(
+        expected,
+        abs=5e-7,
+    )
+
+
 def test_recorded_actual_reward_rate_is_zero_offline() -> None:
     state = State(0.2, 0.4, 0.3)
     params = Params(T=3, M=3, K=2, beta=2.0, gh_order=8)

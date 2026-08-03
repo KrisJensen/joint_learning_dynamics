@@ -1,4 +1,4 @@
-"""Compare eta_2f-only prefix lengths with an optional eta_3f-only baseline."""
+"""Compute fixed-M, optimal-M, and eta_3f-only prefix-length trajectories."""
 
 import argparse
 
@@ -17,22 +17,47 @@ from learning_dynamics import run_analytical
 
 
 def main() -> None:
-    print("running!")
     parser = argparse.ArgumentParser(description=__doc__)
     add_common_args(parser)
     add_analytical_args(parser)
+    # The report absorbs the legacy zero-field score factor of 1/2 into the
+    # learning-rate definitions, so legacy rates/caps of 2.5/20 become
+    # 1.25/10. The remaining defaults reproduce the legacy fixed-WM analysis.
+    parser.set_defaults(
+        schedule="online:25",
+        rho_me0=1.0,
+        rho_sm0=0.0,
+        T=8,
+        K=5,
+        K_mode="constant",
+        beta=3.0,
+        temperature_mode="optimal",
+        beta_max=20.0,
+        eta_2f=1.25,
+        eta_3f=1.25,
+        eta_off=1.25,
+        eta_wm=0.0,
+        eta_max=10.0,
+        learning_rate_mode="constant",
+        fix_eta_wm_zero=True,
+        eta_e=0.0,
+        delta_on=0.1,
+        delta_off=0.1,
+        gh_order=25,
+    )
     parser.add_argument("--M-values", default=None, help="defaults to 1..T")
     parser.add_argument("--objectives", default="drift")
-    parser.add_argument(
-        "--include-eta-3f",
-        action="store_true",
-        help="also run an eta_3f-only baseline with eta_2f=0 and M=T",
-    )
     args = parser.parse_args()
+
     values = (
         list(range(1, args.T + 1))
         if args.M_values is None
         else parse_list(args.M_values, int)
+    )
+    initial = initial_state(
+        args,
+        rho_me=1.0,
+        rho_sm=args.rho_se0,
     )
     rows = []
     for M in values:
@@ -46,7 +71,7 @@ def main() -> None:
             fix_eta_3f_zero=True,
         )
         rows += with_metadata(
-            run_analytical(initial_state(args), params, **analytical_kwargs(args)),
+            run_analytical(initial, params, **analytical_kwargs(args)),
             params,
             source="analytical",
             condition=f"eta_2f only, M={M}",
@@ -67,7 +92,7 @@ def main() -> None:
             fix_eta_3f_zero=True,
         )
         rows += with_metadata(
-            run_analytical(initial_state(args), params, **analytical_kwargs(args)),
+            run_analytical(initial, params, **analytical_kwargs(args)),
             params,
             source="analytical",
             condition=f"eta_2f only, optimal M ({objective})",
@@ -76,26 +101,25 @@ def main() -> None:
             nonzero_rate="eta_2f",
             nonzero_rate_mode=args.learning_rate_mode,
         )
-    if args.include_eta_3f:
-        print(f"running eta_3f-only baseline with M = {args.T}")
-        params = make_params(
-            args,
-            M=args.T,
-            M_mode="constant",
-            eta_2f=0.0,
-            fix_eta_2f_zero=True,
-            fix_eta_3f_zero=False,
-        )
-        rows += with_metadata(
-            run_analytical(initial_state(args), params, **analytical_kwargs(args)),
-            params,
-            source="analytical",
-            condition=f"eta_3f only, M={args.T}",
-            comparison_group="eta_3f_only",
-            compared_M=args.T,
-            nonzero_rate="eta_3f",
-            nonzero_rate_mode=args.learning_rate_mode,
-        )
+    print(f"running eta_3f-only baseline with M = {args.T}")
+    params = make_params(
+        args,
+        M=args.T,
+        M_mode="constant",
+        eta_2f=0.0,
+        fix_eta_2f_zero=True,
+        fix_eta_3f_zero=False,
+    )
+    rows += with_metadata(
+        run_analytical(initial, params, **analytical_kwargs(args)),
+        params,
+        source="analytical",
+        condition=f"eta_3f only, M={args.T}",
+        comparison_group="eta_3f_only",
+        compared_M=args.T,
+        nonzero_rate="eta_3f",
+        nonzero_rate_mode=args.learning_rate_mode,
+    )
     path = destination(args, "prefix_length_comparison")
     write_records(path, rows)
     print(f"Wrote {path}")

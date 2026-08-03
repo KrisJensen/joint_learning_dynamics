@@ -38,9 +38,16 @@ def main() -> None:
                         "rho_me": state.rho_me,
                         "rho_sm": state.rho_sm,
                         "K": resolved.params.K,
+                        "T": args.T,
                         "M": M,
                         "beta": resolved.beta,
                         "online_cost": resolved.params.c_on,
+                        "sequence_correct_probability": values[
+                            "planning_environment_reward_probability"
+                        ],
+                        "planner_prefix_correct_probability": values[
+                            "planner_acceptance_probability"
+                        ],
                         **values,
                     }
                 ],

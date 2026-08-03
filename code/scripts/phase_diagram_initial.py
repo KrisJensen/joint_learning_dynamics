@@ -1,7 +1,6 @@
 """Compute a DP phase diagram over initial rho_se and rho_me."""
 
 import argparse
-from dataclasses import replace
 
 from _common import (
     add_common_args,
@@ -34,11 +33,17 @@ def main() -> None:
         help="comma-separated horizons; defaults to --horizon",
     )
     parser.add_argument(
-        "--switch-costs",
+        "--switch-times",
         default="",
-        help="comma-separated delta-switch values; defaults to --delta-switch",
+        help="comma-separated t-switch values; defaults to --t-switch",
     )
     parser.add_argument("--dp-step-size", type=float, default=0.1)
+    parser.add_argument(
+        "--t-switch",
+        type=float,
+        default=0.1,
+        help="fixed macroscopic elapsed time required to switch modes",
+    )
     parser.add_argument("--rho-points", type=int, default=31)
     parser.add_argument("--dp-K-max", type=int, default=10)
     parser.add_argument(
@@ -68,18 +73,17 @@ def main() -> None:
             else [args.horizon]
         )
     )
-    switch_costs = sorted(
+    switch_times = sorted(
         set(
-            parse_list(args.switch_costs)
-            if args.switch_costs.strip()
-            else [params.delta_switch]
+            parse_list(args.switch_times)
+            if args.switch_times.strip()
+            else [args.t_switch]
         )
     )
     if any(horizon <= 0.0 for horizon in horizons):
         parser.error("initial horizons must be positive")
-    if any(cost <= 0.0 for cost in switch_costs):
-        parser.error("switch costs must be positive")
-    params = replace(params, delta_switch=switch_costs[0])
+    if any(switch_time <= 0.0 for switch_time in switch_times):
+        parser.error("switch times must be positive")
     maximum_horizon = max(horizons)
     rho_se_values = parse_list(args.rho_se_values)
     rho_me_values = parse_list(args.rho_me_values)
@@ -95,6 +99,7 @@ def main() -> None:
             K_max=args.dp_K_max,
             M=args.dp_M,
             reward_kind=args.reward_kind,
+            t_switch=switch_times[0],
             fixed_wm=True,
             fixed_rho_me=rho_me,
         )
@@ -112,38 +117,38 @@ def main() -> None:
             horizon=maximum_horizon,
             progress=print,
         )
-        for switch_cost in switch_costs:
+        for switch_time in switch_times:
             print(
                 "Solving full switching DP for "
-                f"rho_me={rho_me:.6g}, delta_switch={switch_cost:g}"
+                f"rho_me={rho_me:.6g}, t_switch={switch_time:g}"
             )
             full = solve_dp_workspace(
                 workspace,
                 variant="switching",
                 horizon=maximum_horizon,
-                delta_switch=switch_cost,
+                t_switch=switch_time,
                 progress=print,
             )
             print(
                 "Solving K=1 switching DP for "
-                f"rho_me={rho_me:.6g}, delta_switch={switch_cost:g}"
+                f"rho_me={rho_me:.6g}, t_switch={switch_time:g}"
             )
             k1 = solve_dp_workspace(
                 workspace,
                 variant="switching",
                 horizon=maximum_horizon,
-                delta_switch=switch_cost,
+                t_switch=switch_time,
                 allowed_K=(1,),
                 progress=print,
             )
             rho_slug = f"{rho_me:.12g}".replace("-", "m").replace(".", "p")
-            switch_slug = (
-                f"{switch_cost:.12g}".replace("-", "m").replace(".", "p")
+            switch_time_slug = (
+                f"{switch_time:.12g}".replace("-", "m").replace(".", "p")
             )
             table_path = output_path(
                 (
                     f"phase_diagram_initial_rho_me_{rho_slug}"
-                    f"_switch_{switch_slug}"
+                    f"_t_switch_{switch_time_slug}"
                 ),
                 args.suffix,
                 args.output_subdir,
@@ -192,7 +197,7 @@ def main() -> None:
                             "analysis": "initial_correlations",
                             "rollout_outcome_method": effective_rollout_method,
                             "initial_horizon": horizon,
-                            "delta_switch": switch_cost,
+                            "t_switch": switch_time,
                             "rho_se0": rho_se,
                             "rho_me0": rho_me,
                             "rho_sm0": rho_se * rho_me,

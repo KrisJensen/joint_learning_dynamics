@@ -31,7 +31,6 @@ PARAMETERS = (
     "eta_e",
     "delta_on",
     "delta_off",
-    "delta_switch",
     "C_A",
     "C_T",
     "C_phi",

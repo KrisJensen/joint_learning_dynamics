@@ -110,11 +110,11 @@ On this branch the executed prefix equals the WM labels. If no candidate has a W
 
 The sequence reward $R_{\rm env}$ is one if every physically executed action agrees with the environment label and zero otherwise.
 
-A real action sequence has unit elapsed cost. Let $\delta_{\rm on}$ be the elapsed cost of simulating one complete length-$T$ sequence online, $\delta_{\rm off}$ the elapsed cost of one complete offline replay, and $\delta_{\rm switch}$ the elapsed cost of switching between online and offline modes. Their inverses are
+A real action sequence has unit elapsed cost. Let $\delta_{\rm on}$ be the elapsed cost of simulating one complete length-$T$ sequence online and $\delta_{\rm off}$ the elapsed cost of one complete offline replay. Their inverses are
 \begin{align}
-\tau_x &= \delta_x^{-1}, & x &\in\{{\rm on},{\rm off},{\rm switch}\},
+\tau_x &= \delta_x^{-1}, & x &\in\{{\rm on},{\rm off}\},
 \end{align}
-so $\tau_x$ is the ratio of unit action cost to the corresponding thinking or switching cost. Evaluating only a length-$M$ prefix takes $(M/T)\delta_{\rm on}$ time. Therefore one microscopic online update has elapsed cost
+so $\tau_x$ is the ratio of unit action cost to the corresponding thinking cost. Evaluating only a length-$M$ prefix takes $(M/T)\delta_{\rm on}$ time. Therefore one microscopic online update has elapsed cost
 \begin{align}
 c_{K,M}^{\rm on} &= 1+K\frac{M}{T}\delta_{\rm on},
 \end{align}
@@ -479,29 +479,40 @@ This is a one-dimensional root condition. The global optimum over $\beta\geq 0$ 
 
 \section{Optimal learning rates}
 
-The correlations and all moment integrals are held fixed while a learning rate is optimized. The formulas below give unconstrained interior stationary points. If rates are constrained to be nonnegative or bounded, the corresponding boundaries must also be checked. Elapsed costs and environment drift scale the achieved drift but do not change these stationary rates for fixed $(K,M)$.
+The correlations and all moment integrals are held fixed while a learning rate is optimized. Online rates are constrained by
+\begin{align}
+\eta_{2f} &\geq 0, & \eta_{3f} &\geq 0, & \eta_{2f}+\eta_{3f} &\leq \eta_{\max}.
+\end{align}
+Elapsed costs and environment drift scale the achieved drift but do not change the stationary rates for fixed $(K,M)$.
 
 \subsection{Online two-factor and three-factor rates}
 
-The online rates maximize the instantaneous student-environment drift. Since $D_0=1$ and $D_R=\bar r_{K,M}$, the stationarity conditions are
+Let $r=\bar r_{K,M}$. The online rates maximize the per-update student-environment learning numerator
 \begin{align}
-\begin{pmatrix}1 & \bar r_{K,M} \\
-\bar r_{K,M} & \bar r_{K,M}\end{pmatrix}\begin{pmatrix}\eta_{2f} \\
-\eta_{3f}\end{pmatrix} &= \frac{T}{\rho_{se}}\begin{pmatrix}L_0 \\
-L_R\end{pmatrix}.
+\mathcal N(\eta_{2f},\eta_{3f}) &= \eta_{2f}L_0+\eta_{3f}L_R-\frac{\rho_{se}}{2T}\left[\eta_{2f}^2+r\left(2\eta_{2f}\eta_{3f}+\eta_{3f}^2\right)\right].
 \end{align}
-When $0<\bar r_{K,M}<1$ and $\rho_{se}\neq0$, the interior solution is
+Define the total online rate
 \begin{align}
-\eta_{2f}^\star &= \frac{T}{\rho_{se}}\frac{L_0-L_R}{1-\bar r_{K,M}}, \\
-\eta_{3f}^\star &= \frac{T}{\rho_{se}}\left[\frac{L_R}{\bar r_{K,M}}-\frac{L_0-L_R}{1-\bar r_{K,M}}\right].
+s &= \eta_{2f}+\eta_{3f}.
 \end{align}
-It is a local maximum when the quadratic curvature is positive definite; a sufficient condition is $\rho_{se}>0$ and $0<\bar r_{K,M}<1$.
-
-For comparison, the axis-constrained optima are
+Then
 \begin{align}
-\eta_{2f}^{\star\,|\,\eta_{3f}=0} &= \frac{T}{\rho_{se}}L_0, & \eta_{3f}^{\star\,|\,\eta_{2f}=0} &= \frac{T}{\rho_{se}}\frac{L_R}{\bar r_{K,M}}.
+\mathcal N(s,\eta_{2f}) &= L_Rs+(L_0-L_R)\eta_{2f}-\frac{\rho_{se}}{2T}\left[rs^2+(1-r)\eta_{2f}^2\right], & 0 &\leq \eta_{2f}\leq s\leq\eta_{\max}.
 \end{align}
-These are separate constrained optimizations, not components of the joint optimum.
+For $\rho_{se}>0$ and $0<r<1$, this objective is strictly concave. Its unconstrained stationary point is
+\begin{align}
+s_0 &= \frac{T}{\rho_{se}}\frac{L_R}{r}, & \eta_{2f,0} &= \frac{T}{\rho_{se}}\frac{L_0-L_R}{1-r}, & \eta_{3f,0} &= s_0-\eta_{2f,0}.
+\end{align}
+This is the constrained optimum whenever $0\leq\eta_{2f,0}\leq s_0\leq\eta_{\max}$. On the capped-sum edge $s=\eta_{\max}$, the candidate is
+\begin{align}
+\eta_{2f}^{(\Sigma)} &= \operatorname{clip}_{[0,\eta_{\max}]}\left(\frac{T}{\rho_{se}}\frac{L_0-L_R}{1-r}\right), & \eta_{3f}^{(\Sigma)} &= \eta_{\max}-\eta_{2f}^{(\Sigma)}.
+\end{align}
+The two single-rule edges must also be checked:
+\begin{align}
+\eta_{2f}^{(2)} &= \operatorname{clip}_{[0,\eta_{\max}]}\left(\frac{T}{\rho_{se}}L_0\right), & \eta_{3f}^{(2)} &= 0, \\
+\eta_{2f}^{(3)} &= 0, & \eta_{3f}^{(3)} &= \operatorname{clip}_{[0,\eta_{\max}]}\left(\frac{T}{\rho_{se}}\frac{L_R}{r}\right).
+\end{align}
+The constrained joint optimum is the feasible candidate with the largest value of $\mathcal N$. The clipping operation includes all corner solutions. Singular or non-concave cases, including $r\in\{0,1\}$ or $\rho_{se}\leq0$, are handled by direct evaluation of the same boundary objectives.
 
 \subsection{Offline student rate}
 
@@ -547,7 +558,8 @@ The drift-rate optimum is
 \end{align}
 If the learning rates are reoptimized for each pair, replace $\mathcal N_{K,M}$ by
 \begin{align}
-\mathcal N_{K,M}^\star &= \max_{\eta_{2f},\eta_{3f}}\mathcal N_{K,M}.
+\mathcal N_{K,M}^\star &= \max_{\substack{\eta_{2f}\geq0,\ \eta_{3f}\geq0 \\
+\eta_{2f}+\eta_{3f}\leq\eta_{\max}}}\mathcal N_{K,M}.
 \end{align}
 Because the domain is finite, the reliable procedure is to evaluate the exact objective over all allowed pairs. No unimodality or one-step stopping condition is assumed.
 
@@ -557,7 +569,7 @@ We now allow planning choices to affect future learning. Both $K$ and $M$ are co
 \begin{align}
 \Delta &= \texttt{step\_size}>0.
 \end{align}
-The parameter $\Delta$ is the amount of macroscopic time assigned to one unit-cost execution element in a DP step. Each abstract mode is held for $\Delta$ macroscopic update units before a new decision is made. Reducing $\Delta$ shortens every mode and refines the horizon grid uniformly, so $\texttt{step\_size}$ sets the resolution of the entire dynamic-programming analysis and may be chosen arbitrarily small for improved accuracy.
+The parameter $\Delta$ is the amount of macroscopic time assigned to one unit-cost execution element in a DP step. Each online or offline execution block is run for $\Delta$ macroscopic update units before a new decision is made. Reducing $\Delta$ shortens these execution blocks and refines the horizon grid, while the fixed switching duration $t_{\rm switch}$ remains unchanged. Thus $\texttt{step\_size}$ sets the resolution of the dynamic-programming analysis and may be chosen arbitrarily small, subject to exact grid alignment, for improved accuracy.
 
 One additional evaluated time step in one imagined plan has relative cost
 \begin{align}
@@ -565,17 +577,27 @@ q &= \frac{\delta_{\rm on}}{T},
 \end{align}
 and therefore contributes $q\Delta$ macroscopic elapsed time in one DP step. We assume
 \begin{align}
-n_{\rm act} &= \frac{1}{q}=\frac{T}{\delta_{\rm on}}\in\mathbb N, & n_{\rm off} &= \frac{\delta_{\rm off}}{q}\in\mathbb N, & n_{\rm switch} &= \frac{\delta_{\rm switch}}{q}\in\mathbb N.
+n_{\rm act} &= \frac{1}{q}=\frac{T}{\delta_{\rm on}}\in\mathbb N, & n_{\rm off} &= \frac{\delta_{\rm off}}{q}\in\mathbb N.
 \end{align}
-The first condition makes the unit action cost commensurate with the elementary simulation cost; the other two state that offline replay and switching costs are integer multiples of $\delta_{\rm on}/T$. The horizon-grid spacing is
+The first condition makes the unit action cost commensurate with the elementary simulation cost, and the second states that offline replay is an integer multiple of $\delta_{\rm on}/T$. The horizon-grid spacing is
 \begin{align}
 \Delta h &= q\Delta.
 \end{align}
+Switching between online and offline modes takes a fixed macroscopic elapsed time $t_{\rm switch}>0$. This is a physical or cognitive latency rather than a relative simulation cost, so it is independent of the numerical resolution $\Delta$. We assume that $\Delta$ is chosen such that
+\begin{align}
+n_{\rm switch}(\Delta) &= \frac{t_{\rm switch}}{\Delta h}=\frac{t_{\rm switch}}{q\Delta}\in\mathbb N.
+\end{align}
+Equivalently, for any chosen integer $N_{\rm switch}\geq1$, one may set
+\begin{align}
+\Delta &= \frac{t_{\rm switch}}{N_{\rm switch}q},
+\end{align}
+so that $n_{\rm switch}=N_{\rm switch}$. Increasing $N_{\rm switch}$ refines the entire analysis while leaving the actual switching time unchanged.
+
 An online mode $(K,M)$, an offline mode, and a switch occupy
 \begin{align}
 \Delta t_{K,M}^{\rm on} &= \left(1+K\frac{M}{T}\delta_{\rm on}\right)\Delta=(n_{\rm act}+KM)\Delta h, \\
 \Delta t^{\rm off} &= \delta_{\rm off}\Delta=n_{\rm off}\Delta h, \\
-\Delta t^{\rm switch} &= \delta_{\rm switch}\Delta=n_{\rm switch}\Delta h.
+\Delta t^{\rm switch} &= t_{\rm switch}=n_{\rm switch}(\Delta)\Delta h.
 \end{align}
 Thus every transition lands exactly on the horizon grid $h_n=n\Delta h$.
 
@@ -616,9 +638,9 @@ The value function uses $h$ consistently for the remaining horizon. Including th
 V^{(0)}(h,\boldsymbol\rho^{(0)}) &= \max\left\{0,\max_{\substack{(K,M)\in\mathcal K\times\mathcal M \\
 \Delta t_{K,M}^{\rm on}\leq h}}\left[r_{K,M}^{\rm on}(\boldsymbol\rho^{(0)},\bar\rho_{me};\Delta)+V^{(0)}\left(h-\Delta t_{K,M}^{\rm on},\Phi_{K,M}^{(0)}(\boldsymbol\rho^{(0)})\right)\right]\right\}.
 \end{align}
-No interpolation is needed in the horizon coordinate because all transition times lie on the grid. On a regular grid over $\mathcal D_2$, the remaining state-space lookup can be implemented with bilinear interpolation. For efficiency, the destination cell indices and interpolation weights can be precomputed for every state-action pair and reused at every horizon value.
+All horizon transitions are exact grid moves. On a regular grid over $\mathcal D_2$, the state-space lookup can be implemented with bilinear interpolation. For efficiency, the destination cell indices and interpolation weights can be precomputed for every state-action pair and reused at every horizon value.
 
-\subsection{Joint online-offline control with switching costs}
+\subsection{Joint online-offline control with switching time}
 
 The full state is
 \begin{align}
@@ -658,7 +680,7 @@ The implementation stores one value table for each mode and fills the horizon gr
 
 \section{Assumptions and special cases}
 
-The deterministic macroscopic equations assume $d\to\infty$ with $T$, $K_{\max}$, and a chosen positive $\texttt{step\_size}$ fixed; fresh independent Gaussian inputs across time steps and microscopic updates; conditionally independent candidate-action samples; independent reward-channel and label-flip noise; simultaneous student and WM updates evaluated from pre-update fields; and explicit spherical renormalization, or its continuous projection equivalent, after each microscopic update. The time-grid assumptions in the dynamic program are the integer commensurability conditions stated above; decreasing $\texttt{step\_size}$ refines both the ODE integration horizon and the Bellman grid without changing those integer ratios. No uniform large-$d$ claim is made for $K$ growing with $d$.
+The deterministic macroscopic equations assume $d\to\infty$ with $T$, $K_{\max}$, and a chosen positive $\texttt{step\_size}$ fixed; fresh independent Gaussian inputs across time steps and microscopic updates; conditionally independent candidate-action samples; independent reward-channel and label-flip noise; simultaneous student and WM updates evaluated from pre-update fields; and explicit spherical renormalization, or its continuous projection equivalent, after each microscopic update. The dynamic program assumes $1/q$ and $\delta_{\rm off}/q$ are integers. Exact horizon-grid transitions additionally require $t_{\rm switch}/(q\,\texttt{step\_size})$ to be an integer. The resolution may be refined along any sequence of step sizes satisfying this condition, in which case online and offline blocks become shorter while the fixed switching time remains unchanged. No uniform large-$d$ claim is made for $K$ growing with $d$.
 
 If $\eta_e=0$, the equations reduce to static-environment dynamics, while elapsed learning rates remain divided by $c_{K,M}^{\rm on}$ or $\delta_{\rm off}$.
 
@@ -670,5 +692,77 @@ If $M=T$, partial evaluation becomes full-sequence evaluation. If $K=1$, selecti
 \end{align}
 
 If $w_m=w_e$, then $\rho_{me}=1$ and $\rho_{sm}=\rho_{se}$. A WM-correct plan is then environment-correct. If $p_{\rm flip}=1/2$, then $\mu_{\rm flip}=0$ and the WM has no first-order alignment signal. If $\epsilon=1/2$, then $\delta_\epsilon=0$ and the three-factor rule receives no information about the true reward beyond the constant observed-reward rate.
+
+
+\clearpage
+\appendix
+\section{Online strategy switching}
+
+This appendix extends the dynamic program by assigning a fixed elapsed-time cost to changing between two online cognitive strategies. Let
+\begin{align}
+\mathcal S_{\rm on} &= \mathcal K\times\mathcal M, & \kappa &= (K,M)\in\mathcal S_{\rm on}, & S &= |\mathcal S_{\rm on}|.
+\end{align}
+The discrete state is augmented to
+\begin{align}
+z\in\mathcal S_{\rm on}\cup\{c,{\rm off}\},
+\end{align}
+where $z=\kappa$ records the currently active online strategy and $c$ is a transient online-switch state. From an online strategy $\kappa$, the admissible transitions are to continue with $\kappa$, enter $c$, or switch to the offline state. Entering $c$ incurs a fixed macroscopic elapsed time $t_c>0$, after which a new online strategy may be selected. Switching between online and offline states continues to incur $t_{\rm switch}$.
+
+During either switching interval there is no learning and no reward, but the environment continues to drift. Define the no-learning flow
+\begin{align}
+C_t(\boldsymbol\rho) &= \left(e^{-\eta_et}\rho_{se},e^{-\eta_et}\rho_{me},\rho_{sm}\right).
+\end{align}
+We assume that $t_c$ falls exactly on the horizon grid:
+\begin{align}
+n_c(\Delta) &= \frac{t_c}{\Delta h}=\frac{t_c}{q\Delta}\in\mathbb N.
+\end{align}
+Together with the existing grid assumptions, the relevant integer durations are
+\begin{align}
+n_\kappa &= \frac{\Delta t_\kappa^{\rm on}}{\Delta h}=n_{\rm act}+KM, & n_{\rm off} &= \frac{\Delta t^{\rm off}}{\Delta h}, & n_{\rm switch} &= \frac{t_{\rm switch}}{\Delta h}.
+\end{align}
+
+Let $V_\kappa(h,\boldsymbol\rho)$ be the value when online strategy $\kappa$ is active, let $V_c(h,\boldsymbol\rho)$ be the value of entering the online-switch state, and let $V_{\rm off}(h,\boldsymbol\rho)$ be the offline value. For $h\geq t_c$, the switch-state value is
+\begin{align}
+V_c(h,\boldsymbol\rho) &= \max_{\kappa'\in\mathcal S_{\rm on}}V_{\kappa'}\left(h-t_c,C_{t_c}(\boldsymbol\rho)\right).
+\end{align}
+The online recursion is
+\begin{align}
+V_\kappa(h,\boldsymbol\rho) &= \max\Bigg\{0,\I\{\Delta t_\kappa^{\rm on}\leq h\}\left[r_\kappa^{\rm on}(\boldsymbol\rho;\Delta)+V_\kappa\left(h-\Delta t_\kappa^{\rm on},\Phi_\kappa^{\rm on}(\boldsymbol\rho)\right)\right], \notag\\
+&\qquad\qquad\I\{t_c\leq h\}V_c(h,\boldsymbol\rho),\I\{t_{\rm switch}\leq h\}V_{\rm off}\left(h-t_{\rm switch},C_{t_{\rm switch}}(\boldsymbol\rho)\right)\Bigg\}.
+\end{align}
+The offline recursion is
+\begin{align}
+V_{\rm off}(h,\boldsymbol\rho) &= \max\Bigg\{0,\I\{\Delta t^{\rm off}\leq h\}V_{\rm off}\left(h-\Delta t^{\rm off},\Phi^{\rm off}(\boldsymbol\rho)\right), \notag\\
+&\qquad\qquad\I\{t_{\rm switch}\leq h\}\max_{\kappa\in\mathcal S_{\rm on}}V_\kappa\left(h-t_{\rm switch},C_{t_{\rm switch}}(\boldsymbol\rho)\right)\Bigg\}.
+\end{align}
+The target strategy is selected during an offline-to-online switch, so this transition incurs $t_{\rm switch}$ but not an additional $t_c$. A shared switch state permits returning to the same strategy after paying $t_c$.
+
+\subsection{Rolling-buffer implementation}
+
+A direct implementation would treat the strategy label as an additional discrete state coordinate. Full storage over all horizon points would therefore require $S$ online value arrays in addition to the offline and switch arrays. This is unnecessary because every Bellman transition moves backward by a fixed integer number of horizon-grid points.
+
+Define the best-online envelope at horizon index $n$ by
+\begin{align}
+V_{\max,n}(\boldsymbol\rho) &= \max_{\kappa\in\mathcal S_{\rm on}}V_{\kappa,n}(\boldsymbol\rho).
+\end{align}
+The switch-state value is then obtained algebraically:
+\begin{align}
+V_{c,n}(\boldsymbol\rho) &= V_{\max,n-n_c}\left(C_{t_c}(\boldsymbol\rho)\right).
+\end{align}
+Likewise, an offline-to-online transition uses $V_{\max,n-n_{\rm switch}}$. Hence no separate value table for $c$ is required. Writing $\mathcal I[f](\boldsymbol\rho')$ for interpolation of a stored grid function $f$ at $\boldsymbol\rho'$, the discrete recursions become
+\begin{align}
+V_{\kappa,n}(\boldsymbol\rho) &= \max\Bigg\{0,r_\kappa^{\rm on}(\boldsymbol\rho;\Delta)+\mathcal I[V_{\kappa,n-n_\kappa}]\left(\Phi_\kappa^{\rm on}(\boldsymbol\rho)\right), \notag\\
+&\qquad\qquad\mathcal I[V_{\max,n-n_c}]\left(C_{t_c}(\boldsymbol\rho)\right),\mathcal I[V_{{\rm off},n-n_{\rm switch}}]\left(C_{t_{\rm switch}}(\boldsymbol\rho)\right)\Bigg\}, \\
+V_{{\rm off},n}(\boldsymbol\rho) &= \max\Bigg\{0,\mathcal I[V_{{\rm off},n-n_{\rm off}}]\left(\Phi^{\rm off}(\boldsymbol\rho)\right),\mathcal I[V_{\max,n-n_{\rm switch}}]\left(C_{t_{\rm switch}}(\boldsymbol\rho)\right)\Bigg\}.
+\end{align}
+where terms with negative horizon indices are omitted.
+
+For each strategy $\kappa$, only a circular buffer of $n_\kappa+1$ horizon slices is needed. The best-online envelope requires a circular buffer of length $1+\max\{n_c,n_{\rm switch}\}$, and the offline value requires a circular buffer of length $1+\max\{n_{\rm off},n_{\rm switch}\}$. If $N_\rho$ is the number of feasible correlation-grid points, the value-storage requirement is therefore
+\begin{align}
+O\Bigg(N_\rho\Bigg[\sum_{\kappa\in\mathcal S_{\rm on}}(n_\kappa+1)+1+\max\{n_c,n_{\rm switch}\}+1+\max\{n_{\rm off},n_{\rm switch}\}\Bigg]\Bigg),
+\end{align}
+rather than $O(SN_hN_\rho)$ for $N_h$ stored horizon slices. The runtime remains $O(SN_hN_\rho)$, which is the same leading order as the original maximization over all $(K,M)$ pairs.
+
+At each horizon index, the strategy slices may be processed sequentially and their pointwise maximum accumulated into the current $V_{\max}$ slice. Interpolation indices and weights for $C_{t_c}$, $C_{t_{\rm switch}}$, and $\Phi^{\rm off}$ can be precomputed once. The online transition maps can either be precomputed for every strategy or generated one strategy at a time and reused, depending on whether memory or runtime is the tighter constraint. Storing values in single precision, masking infeasible correlation states, and recording the optimal action only when the policy itself is required provide further memory savings.
 
 \end{document}
