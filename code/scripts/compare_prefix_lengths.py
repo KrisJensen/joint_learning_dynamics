@@ -1,4 +1,4 @@
-"""Compute fixed-M, optimal-M, and eta_3f-only prefix-length trajectories."""
+"""Compute fixed, single-rule, and joint optimal-M trajectories."""
 
 import argparse
 
@@ -99,6 +99,23 @@ def main() -> None:
             comparison_group="eta_2f_optimal_M",
             compared_M=f"optimal_{objective}",
             nonzero_rate="eta_2f",
+            nonzero_rate_mode=args.learning_rate_mode,
+        )
+        print(f"running joint 2f+3f optimal M ({objective})")
+        params = make_params(
+            args,
+            M_mode=objective,
+            fix_eta_2f_zero=False,
+            fix_eta_3f_zero=False,
+        )
+        rows += with_metadata(
+            run_analytical(initial, params, **analytical_kwargs(args)),
+            params,
+            source="analytical",
+            condition=f"joint 2f+3f, optimal M ({objective})",
+            comparison_group="joint_optimal_M",
+            compared_M=f"optimal_{objective}",
+            nonzero_rate="eta_2f+eta_3f",
             nonzero_rate_mode=args.learning_rate_mode,
         )
     print(f"running eta_3f-only baseline with M = {args.T}")

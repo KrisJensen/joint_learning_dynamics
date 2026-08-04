@@ -24,6 +24,102 @@ dynamic_programming = importlib.import_module(
 )
 
 
+def test_constant_prefix_time_gives_all_M_equal_dp_duration() -> None:
+    config = DPConfig(
+        horizon=3.0,
+        step_size=1.0,
+        K_max=2,
+        t_switch=0.5,
+    )
+    proportional = Params(T=4, M=1, delta_on=0.5)
+    constant = Params(
+        T=4,
+        M=1,
+        delta_on=0.5,
+        delta_off=0.5,
+        constant_prefix_time=True,
+    )
+
+    proportional_actions = dynamic_programming._action_specs(
+        proportional,
+        config,
+        "online",
+    )
+    constant_actions = dynamic_programming._action_specs(
+        constant,
+        config,
+        "online",
+    )
+    proportional_k2 = [
+        action for action in proportional_actions if action.K == 2
+    ]
+    constant_k2 = [action for action in constant_actions if action.K == 2]
+
+    assert [action.duration for action in proportional_k2] == pytest.approx(
+        [1.25, 1.5, 1.75, 2.0]
+    )
+    assert [action.duration for action in constant_k2] == pytest.approx(
+        [2.0, 2.0, 2.0, 2.0]
+    )
+    assert len({action.grid_steps for action in constant_k2}) == 1
+    assert config.horizon_step(constant) == pytest.approx(0.5)
+    assert constant_k2[0].grid_steps == 4
+
+
+def test_constant_prefix_time_warns_and_uses_fine_grid_when_needed() -> None:
+    params = Params(
+        T=3,
+        M=1,
+        delta_on=0.3,
+        delta_off=0.3,
+        constant_prefix_time=True,
+    )
+    config = DPConfig(horizon=1.0, step_size=1.0, t_switch=0.3)
+
+    with pytest.warns(RuntimeWarning, match="Falling back to q=delta_on/T"):
+        config.validate(params)
+
+    assert config.horizon_step(params) == pytest.approx(0.1)
+
+
+def test_coarse_constant_prefix_grid_matches_fine_grid_values() -> None:
+    common = dict(
+        T=2,
+        M=2,
+        K=1,
+        delta_on=0.5,
+        delta_off=0.5,
+        gh_order=8,
+    )
+    fine_params = Params(**common)
+    coarse_params = Params(**common, constant_prefix_time=True)
+    config = DPConfig(
+        horizon=2.0,
+        step_size=1.0,
+        rho_points=3,
+        rho_max=0.8,
+        K_max=1,
+        M=2,
+        t_switch=0.5,
+        fixed_wm=True,
+        fixed_rho_me=0.5,
+    )
+
+    fine = solve_switching_dp(fine_params, config)
+    coarse = solve_switching_dp(coarse_params, config)
+
+    assert config.horizon_step(fine_params) == pytest.approx(0.25)
+    assert config.horizon_step(coarse_params) == pytest.approx(0.5)
+    np.testing.assert_allclose(fine.times[::2], coarse.times)
+    np.testing.assert_allclose(
+        fine.values[:, ::2],
+        coarse.values,
+        rtol=2e-6,
+        atol=2e-7,
+    )
+    np.testing.assert_array_equal(fine.policy[:, ::2], coarse.policy)
+
+
 def test_dp_commensurability_and_round_trip(
     tmp_path: Path,
     monkeypatch,
@@ -86,6 +182,335 @@ def test_dp_rejects_noncommensurate_costs() -> None:
     config = DPConfig(horizon=1.0)
     with pytest.raises(ValueError, match="commensurate"):
         config.validate(params)
+
+
+def test_strategy_switch_cost_must_lie_on_horizon_grid() -> None:
+    params = Params(T=2, M=1, delta_on=0.5, delta_off=0.5)
+    with pytest.raises(ValueError, match="t_strategy_switch"):
+        DPConfig(
+            horizon=2.0,
+            step_size=1.0,
+            t_switch=0.5,
+            t_strategy_switch=0.3,
+        ).validate(params)
+
+
+def test_zero_strategy_switch_cost_keeps_full_float32_history() -> None:
+    params = Params(
+        T=2,
+        M=1,
+        delta_on=0.5,
+        delta_off=0.5,
+        gh_order=8,
+    )
+    config = DPConfig(
+        horizon=1.0,
+        step_size=1.0,
+        rho_points=3,
+        rho_max=0.8,
+        K_max=1,
+        M=1,
+        t_strategy_switch=0.0,
+        fixed_wm=True,
+        fixed_rho_me=0.5,
+    )
+
+    result = solve_online_dp(params, config)
+
+    assert result.config.t_strategy_switch == 0.0
+    assert result.values is not None
+    assert result.values.dtype == np.float32
+    assert result.policy is not None
+    assert all(action.kind != "strategy_switch" for action in result.actions)
+
+
+def test_positive_strategy_switch_cost_matches_full_reference_and_round_trips(
+    tmp_path: Path,
+) -> None:
+    params = Params(
+        T=2,
+        M=1,
+        delta_on=0.5,
+        delta_off=0.5,
+        eta_e=0.1,
+        gh_order=8,
+    )
+    config = DPConfig(
+        horizon=2.0,
+        step_size=1.0,
+        rho_points=3,
+        rho_max=0.8,
+        K_max=2,
+        M=1,
+        t_switch=0.5,
+        t_strategy_switch=0.5,
+        record_compact_policy=True,
+    )
+
+    result = solve_switching_dp(params, config)
+    assert result.values is None
+    assert result.policy is None
+    assert result.terminal_values is not None
+    assert result.terminal_values.shape == (2, len(result.points))
+    assert result.terminal_values.dtype == np.float64
+    assert result.compact_policy is not None
+
+    online_indices = [
+        index
+        for index, table in enumerate(result.tables)
+        if table.spec.kind == "online"
+    ]
+    strategy_switch_index = next(
+        index
+        for index, table in enumerate(result.tables)
+        if table.spec.kind == "strategy_switch"
+    )
+    strategy_switch_table = result.tables[strategy_switch_index]
+    np.testing.assert_array_equal(
+        strategy_switch_table.reward,
+        np.zeros(len(result.points)),
+    )
+    np.testing.assert_array_equal(
+        strategy_switch_table.probability,
+        np.zeros(len(result.points)),
+    )
+    retained = np.exp(-params.eta_e * config.t_strategy_switch)
+    next_points = result.points + strategy_switch_table.delta
+    np.testing.assert_allclose(
+        next_points[:, :2],
+        retained * result.points[:, :2],
+        atol=1e-14,
+    )
+    np.testing.assert_allclose(
+        next_points[:, 2],
+        result.points[:, 2],
+        atol=1e-14,
+    )
+    offline_index = next(
+        index
+        for index, table in enumerate(result.tables)
+        if table.spec.kind == "offline"
+    )
+    switch_index = next(
+        index
+        for index, table in enumerate(result.tables)
+        if table.spec.kind == "switch"
+    )
+    prepared = [
+        result.interpolator.prepare(result.points + table.delta)
+        for table in result.tables
+    ]
+    layer_count = len(result.times)
+    point_count = len(result.points)
+    strategy_values = np.zeros(
+        (len(online_indices), layer_count, point_count),
+        dtype=np.float64,
+    )
+    envelope = np.zeros((layer_count, point_count), dtype=np.float64)
+    offline_values = np.zeros((layer_count, point_count), dtype=np.float64)
+    strategy_decisions = np.zeros_like(strategy_values, dtype=np.uint8)
+    offline_decisions = np.zeros_like(offline_values, dtype=np.uint8)
+
+    for layer in range(1, layer_count):
+        for strategy_position, action_index in enumerate(online_indices):
+            table = result.tables[action_index]
+            best = np.zeros(point_count, dtype=np.float64)
+            decisions = np.zeros(point_count, dtype=np.uint8)
+            if table.spec.grid_steps <= layer:
+                candidate = table.reward + prepared[action_index].apply(
+                    strategy_values[
+                        strategy_position,
+                        layer - table.spec.grid_steps,
+                    ]
+                )
+                improve = candidate > best
+                best[improve] = candidate[improve]
+                decisions[improve] = dynamic_programming._POLICY_CONTINUE
+            strategy_switch = result.tables[strategy_switch_index]
+            if strategy_switch.spec.grid_steps <= layer:
+                candidate = prepared[strategy_switch_index].apply(
+                    envelope[layer - strategy_switch.spec.grid_steps]
+                )
+                improve = candidate > best
+                best[improve] = candidate[improve]
+                decisions[improve] = (
+                    dynamic_programming._POLICY_STRATEGY_SWITCH
+                )
+            mode_switch = result.tables[switch_index]
+            if mode_switch.spec.grid_steps <= layer:
+                candidate = prepared[switch_index].apply(
+                    offline_values[layer - mode_switch.spec.grid_steps]
+                )
+                improve = candidate > best
+                best[improve] = candidate[improve]
+                decisions[improve] = dynamic_programming._POLICY_MODE_SWITCH
+            strategy_values[strategy_position, layer] = best
+            strategy_decisions[strategy_position, layer] = decisions
+        envelope[layer] = np.max(strategy_values[:, layer], axis=0)
+
+        offline = result.tables[offline_index]
+        best_offline = np.zeros(point_count, dtype=np.float64)
+        decisions = np.zeros(point_count, dtype=np.uint8)
+        if offline.spec.grid_steps <= layer:
+            candidate = offline.reward + prepared[offline_index].apply(
+                offline_values[layer - offline.spec.grid_steps]
+            )
+            improve = candidate > best_offline
+            best_offline[improve] = candidate[improve]
+            decisions[improve] = dynamic_programming._POLICY_CONTINUE
+        mode_switch = result.tables[switch_index]
+        if mode_switch.spec.grid_steps <= layer:
+            candidate = prepared[switch_index].apply(
+                envelope[layer - mode_switch.spec.grid_steps]
+            )
+            improve = candidate > best_offline
+            best_offline[improve] = candidate[improve]
+            decisions[improve] = dynamic_programming._POLICY_MODE_SWITCH
+        offline_values[layer] = best_offline
+        offline_decisions[layer] = decisions
+
+    np.testing.assert_allclose(
+        result.terminal_values,
+        np.stack((envelope[-1], offline_values[-1])),
+        atol=1e-13,
+        rtol=1e-13,
+    )
+    compact = result.compact_policy
+    expected_width = (point_count + 3) // 4
+    assert compact.strategy_decisions.shape == (
+        len(online_indices),
+        layer_count,
+        expected_width,
+    )
+    assert compact.strategy_decisions.nbytes == (
+        len(online_indices) * layer_count * expected_width
+    )
+    assert compact.nbytes == (
+        compact.strategy_decisions.nbytes
+        + compact.offline_decisions.nbytes
+        + compact.envelope_strategy.nbytes
+    )
+    for strategy_position in range(len(online_indices)):
+        for layer in range(layer_count):
+            decoded = [
+                dynamic_programming._unpack_policy_decision(
+                    compact.strategy_decisions[strategy_position, layer],
+                    point,
+                )
+                for point in range(point_count)
+            ]
+            np.testing.assert_array_equal(
+                decoded,
+                strategy_decisions[strategy_position, layer],
+            )
+    for layer in range(layer_count):
+        decoded = [
+            dynamic_programming._unpack_policy_decision(
+                compact.offline_decisions[layer],
+                point,
+            )
+            for point in range(point_count)
+        ]
+        np.testing.assert_array_equal(decoded, offline_decisions[layer])
+    np.testing.assert_array_equal(
+        compact.envelope_strategy,
+        np.argmax(strategy_values, axis=0),
+    )
+
+    initial = State(0.1, 0.5, 0.1)
+    assert np.isfinite(value_at(result, config.horizon, initial))
+    with pytest.raises(ValueError, match="final-horizon"):
+        value_at(result, config.horizon / 2.0, initial)
+    rollout = rollout_policies(result, [initial])[0]
+    assert rollout[-1]["action"] == "terminal"
+    assert any(item["action"].startswith("online(") for item in rollout)
+
+    path = tmp_path / "rolling_strategy_switch.npz"
+    save_dp_result(path, result)
+    with np.load(path, allow_pickle=False) as data:
+        assert "terminal_values" in data.files
+        assert "values" not in data.files
+        assert "policy" not in data.files
+        assert "compact_strategy_decisions" in data.files
+        assert "compact_offline_decisions" in data.files
+        assert "compact_envelope_strategy" in data.files
+    loaded = load_dp_result(path)
+    assert loaded.values is None
+    assert loaded.policy is None
+    assert loaded.compact_policy is not None
+    assert loaded.config.t_strategy_switch == pytest.approx(0.5)
+    np.testing.assert_array_equal(loaded.terminal_values, result.terminal_values)
+    np.testing.assert_array_equal(
+        loaded.compact_policy.strategy_decisions,
+        compact.strategy_decisions,
+    )
+    loaded_rollout = rollout_policies(loaded, [initial])[0]
+    assert [row["action"] for row in loaded_rollout] == [
+        row["action"] for row in rollout
+    ]
+
+
+def test_single_strategy_still_has_shared_switch_action() -> None:
+    params = Params(
+        T=2,
+        M=1,
+        delta_on=0.5,
+        delta_off=0.5,
+        gh_order=8,
+    )
+    result = solve_online_dp(
+        params,
+        DPConfig(
+            horizon=1.0,
+            step_size=1.0,
+            rho_points=3,
+            rho_max=0.8,
+            K_max=1,
+            M=1,
+            t_strategy_switch=0.5,
+            fixed_wm=True,
+            fixed_rho_me=0.5,
+        ),
+    )
+
+    assert [action.kind for action in result.actions].count("online") == 1
+    assert [action.kind for action in result.actions].count("strategy_switch") == 1
+    assert result.compact_policy is None
+    with pytest.raises(ValueError, match="compact policy recording"):
+        rollout_policies(result, [State(0.1, 0.5, 0.1)])
+
+
+def test_modulated_strategy_switch_uses_rolling_solver() -> None:
+    params = Params(
+        T=2,
+        M=1,
+        delta_on=0.5,
+        delta_off=0.5,
+        eta_e=0.1,
+        C_A=0.4,
+        C_T=2.0,
+        gh_order=8,
+    )
+    result = solve_online_dp(
+        params,
+        DPConfig(
+            horizon=1.0,
+            step_size=1.0,
+            rho_points=3,
+            rho_max=0.8,
+            K_max=1,
+            M=1,
+            t_strategy_switch=0.5,
+            record_compact_policy=True,
+            no_modulation=False,
+        ),
+    )
+
+    assert result.values is None
+    assert result.params.C_A == pytest.approx(params.C_A)
+    assert np.all(np.isfinite(result.terminal_values))
+    rows = rollout_policies(result, [State(0.0, 0.0, 0.0)])[0]
+    assert rows[-1]["action"] == "terminal"
 
 
 def test_switch_time_is_fixed_when_dp_resolution_changes() -> None:
@@ -258,6 +683,37 @@ def test_workspace_reuses_actions_across_horizons_and_switch_times(
         horizon=1.0,
     )
     assert rows[0]["remaining_horizon"] == pytest.approx(1.0)
+
+
+def test_workspace_rejects_a_requested_time_that_changes_its_quantum() -> None:
+    params = Params(
+        T=2,
+        M=2,
+        delta_on=0.5,
+        delta_off=0.5,
+        constant_prefix_time=True,
+        gh_order=8,
+    )
+    config = DPConfig(
+        horizon=2.0,
+        step_size=1.0,
+        rho_points=3,
+        rho_max=0.8,
+        K_max=1,
+        M=2,
+        t_switch=0.5,
+        fixed_wm=True,
+        fixed_rho_me=0.5,
+    )
+    workspace = build_dp_workspace(params, config)
+
+    with pytest.warns(RuntimeWarning, match="Falling back to q=delta_on/T"):
+        with pytest.raises(ValueError, match="build a separate workspace"):
+            solve_dp_workspace(
+                workspace,
+                variant="switching",
+                horizon=1.75,
+            )
 
 
 def test_rollout_records_resolved_beta() -> None:

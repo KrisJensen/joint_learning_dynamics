@@ -8,7 +8,7 @@ from _common import add_plot_args, paths, read_records
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
-from matplotlib.colors import BoundaryNorm, ListedColormap, TwoSlopeNorm
+from matplotlib.colors import BoundaryNorm, ListedColormap
 
 
 CATEGORY_ORDER = (
@@ -108,7 +108,7 @@ def phase_grids(rows: list[dict], threshold: float):
     category_grid = np.full((len(y_values), len(x_values)), np.nan)
     value_category_grid = np.full_like(category_grid, np.nan)
     switching_advantage_grid = np.full_like(category_grid, np.nan)
-    K_difference_grid = np.full_like(category_grid, np.nan)
+    K_advantage_grid = np.full_like(category_grid, np.nan)
     x_index = {value: index for index, value in enumerate(x_values)}
     y_index = {value: index for index, value in enumerate(y_values)}
     for row in rows:
@@ -121,7 +121,7 @@ def phase_grids(rows: list[dict], threshold: float):
         switching_advantage = relative_advantage(full, online)
         K_advantage = relative_advantage(full, K1)
         switching_advantage_grid[y, x] = switching_advantage
-        K_difference_grid[y, x] = full - K1
+        K_advantage_grid[y, x] = K_advantage
         mode = "offline" if switching_advantage > threshold else "online"
         K_class = "planning" if K_advantage > threshold else "K1"
         value_category_grid[y, x] = category_index[f"{mode}_{K_class}"]
@@ -132,7 +132,7 @@ def phase_grids(rows: list[dict], threshold: float):
         category_grid,
         value_category_grid,
         switching_advantage_grid,
-        K_difference_grid,
+        K_advantage_grid,
     )
 
 
@@ -155,7 +155,7 @@ def phase_figure(rows: list[dict], threshold: float):
         category_grid,
         value_category_grid,
         switching_advantage_grid,
-        K_difference_grid,
+        K_advantage_grid,
     ) = phase_grids(rows, threshold)
     category_cmap, category_norm = category_scale()
     figure, axes = plt.subplots(2, 2, figsize=(12, 9))
@@ -175,7 +175,7 @@ def phase_figure(rows: list[dict], threshold: float):
             norm=category_norm,
             extent=extent,
         )
-        #axis.set_title(title)
+        axis.set_title(title)
         colorbar = figure.colorbar(
             image,
             ax=axis,
@@ -194,23 +194,16 @@ def phase_figure(rows: list[dict], threshold: float):
     colorbar = figure.colorbar(image, ax=axes[1, 0])
     colorbar.set_label(r"$(V_{\rm full}-V_{\rm online})/V_{\rm online}$")
 
-    finite_K_differences = K_difference_grid[np.isfinite(K_difference_grid)]
-    K_limit = (
-        max(float(np.max(np.abs(finite_K_differences))), 1e-12)
-        if finite_K_differences.size
-        else 1.0
-    )
     image = axes[1, 1].imshow(
-        K_difference_grid,
+        K_advantage_grid,
         origin="lower",
         aspect="auto",
-        cmap="coolwarm",
-        norm=TwoSlopeNorm(vmin=-K_limit, vcenter=0.0, vmax=K_limit),
+        cmap="viridis",
         extent=extent,
     )
     #axes[1, 1].set_title(r"value gained by allowing $K>1$")
     colorbar = figure.colorbar(image, ax=axes[1, 1])
-    colorbar.set_label(r"$V_{\rm full}-V_{K=1}$ reward rate")
+    colorbar.set_label(r"$(V_{\rm full}-V_{K=1})/V_{K=1}$")
 
     for axis in axes.ravel():
         axis.set_xlabel(r"$\rho_{se}(0)$")
@@ -223,7 +216,7 @@ def value_category_figure(rows: list[dict], threshold: float):
 
     extent, _, value_category_grid, _, _ = phase_grids(rows, threshold)
     category_cmap, category_norm = category_scale()
-    figure, axis = plt.subplots(figsize=(6.4, 4.8))
+    figure, axis = plt.subplots(figsize=(4.8, 4.8))
     image = axis.imshow(
         value_category_grid,
         origin="lower",
@@ -237,12 +230,12 @@ def value_category_figure(rows: list[dict], threshold: float):
     # )
     axis.set_xlabel(r"$\rho_{se}(0)$")
     axis.set_ylabel(r"$\rho_{me}(0)$")
-    colorbar = figure.colorbar(
-        image,
-        ax=axis,
-        ticks=range(len(CATEGORY_ORDER)),
-    )
-    colorbar.ax.set_yticklabels(CATEGORY_ORDER)
+    # colorbar = figure.colorbar(
+    #     image,
+    #     ax=axis,
+    #     ticks=range(len(CATEGORY_ORDER)),
+    # )
+    # colorbar.ax.set_yticklabels(CATEGORY_ORDER)
     return figure
 
 

@@ -20,7 +20,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     add_common_args(parser)
     add_analytical_args(parser)
-    parser.add_argument("--rate-values", default="0.1,0.2,0.5,1.0,2.0")
+    parser.add_argument("--rate-values", default="0.2,0.5,1.0,2.0")
     args = parser.parse_args()
     rows = []
     for rate in parse_list(args.rate_values):

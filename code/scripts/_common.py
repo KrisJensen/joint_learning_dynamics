@@ -36,11 +36,11 @@ def parse_schedule(text: str) -> Schedule:
 
 
 def add_common_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--schedule", default="online:20")
+    parser.add_argument("--schedule", default="online:50")
     parser.add_argument("--rho-se0", type=float, default=0.0)
     parser.add_argument("--rho-me0", type=float, default=0.0)
     parser.add_argument("--rho-sm0", type=float, default=0.0)
-    parser.add_argument("--T", type=int, default=5)
+    parser.add_argument("--T", type=int, default=6)
     parser.add_argument("--M", type=int, default=None, help="evaluated prefix length; defaults to T")
     parser.add_argument("--M-mode", choices=["constant", "reward", "drift"], default="constant")
     parser.add_argument("--K", type=int, default=5)
@@ -48,7 +48,7 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--K-max", type=int, default=20)
     parser.add_argument("--beta", type=float, default=2.0)
     parser.add_argument("--temperature-mode", choices=["constant", "optimal"], default="constant")
-    parser.add_argument("--beta-max", type=float, default=30.0)
+    parser.add_argument("--beta-max", type=float, default=20.0)
     parser.add_argument("--eta-2f", type=float, default=1.0)
     parser.add_argument("--eta-3f", type=float, default=1.0)
     parser.add_argument("--eta-off", type=float, default=1.0)
@@ -58,11 +58,19 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--fix-eta-3f-zero", action="store_true")
     parser.add_argument("--fix-eta-off-zero", action="store_true")
     parser.add_argument("--fix-eta-wm-zero", action="store_true")
-    parser.add_argument("--eta-max", type=float, default=20.0)
+    parser.add_argument("--eta-max", type=float, default=1.0)
     parser.add_argument("--epsilon", type=float, default=0.0)
     parser.add_argument("--p-flip", type=float, default=0.0)
     parser.add_argument("--eta-e", type=float, default=0.0)
     parser.add_argument("--delta-on", type=float, default=0.1)
+    parser.add_argument(
+        "--constant-prefix-time",
+        action="store_true",
+        help=(
+            "charge delta-on for every candidate prefix instead of scaling "
+            "its time as delta-on*M/T"
+        ),
+    )
     parser.add_argument("--delta-off", type=float, default=0.1)
     parser.add_argument("--tau-on", type=float, default=None, help="inverse of delta-on")
     parser.add_argument("--tau-off", type=float, default=None, help="inverse of delta-off")
@@ -124,6 +132,7 @@ def make_params(args, **overrides) -> Params:
         "p_flip": args.p_flip,
         "eta_e": args.eta_e,
         "delta_on": _delta(args.delta_on, args.tau_on, "tau_on"),
+        "constant_prefix_time": args.constant_prefix_time,
         "delta_off": _delta(args.delta_off, args.tau_off, "tau_off"),
         "C_A": args.C_A,
         "C_T": args.C_T,

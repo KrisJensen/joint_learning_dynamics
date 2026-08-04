@@ -56,6 +56,49 @@ def cycle_parameters(source: Path) -> tuple[float, float, float] | None:
         return None
 
 
+def model_horizon(source: Path, rows: list[dict]) -> int:
+    """Read ``T`` from the result manifest, with legacy-result fallbacks."""
+
+    manifest_path = source.with_suffix(".json")
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text())
+            metadata = manifest.get("metadata", {})
+            if "T" in metadata:
+                return int(metadata["T"])
+            tokens = shlex.split(manifest.get("command", ""))
+            # Six is the run-script default and therefore also covers legacy
+            # manifests whose command did not explicitly include --T.
+            return int(command_float(tokens, "--T", 6.0))
+        except (json.JSONDecodeError, OSError, TypeError, ValueError):
+            pass
+    observed = [
+        int(float(row["M"]))
+        for row in rows
+        if row.get("M", "") not in {"", None}
+    ]
+    if not observed:
+        raise ValueError("cannot determine T from the result manifest or rollout")
+    return max(observed)
+
+
+def uses_constant_prefix_time(source: Path) -> bool:
+    """Return whether the rollout used a prefix-length-independent cost."""
+
+    manifest_path = source.with_suffix(".json")
+    if not manifest_path.exists():
+        return False
+    try:
+        manifest = json.loads(manifest_path.read_text())
+        metadata = manifest.get("metadata", {})
+        if "constant_prefix_time" in metadata:
+            return bool(metadata["constant_prefix_time"])
+        tokens = shlex.split(manifest.get("command", ""))
+        return "--constant-prefix-time" in tokens
+    except (json.JSONDecodeError, OSError, TypeError, ValueError):
+        return False
+
+
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--variant", choices=["online", "switching"], default="online")
 parser.add_argument("--fixed-wm", action="store_true")
@@ -112,7 +155,15 @@ output = args.output or FIGURES_ROOT / subdir / f"{stem}.pdf"
 rows = read_records(source)
 if not rows:
     raise ValueError(f"no records found in {source}")
+if all(row.get("action") == "value_only" for row in rows):
+    raise ValueError(
+        "this result contains only a final-horizon value; positive "
+        "t_strategy_switch runs do not store the history required for "
+        "trajectory plots"
+    )
 times = np.asarray([float(row["time"]) for row in rows])
+T = model_horizon(source, rows)
+constant_prefix_time = uses_constant_prefix_time(source)
 offline_spans = [
     (float(row["time"]), float(next_row["time"]))
     for row, next_row in zip(rows, rows[1:])
@@ -155,12 +206,16 @@ K_values = [
     float(row["K"]) if row.get("K", "") not in {"", None} else np.nan
     for row in rows
 ]
-M_values = [
-    float(row["M"]) if row.get("M", "") not in {"", None} else np.nan
-    for row in rows
-]
+M_values = []
+for row, K in zip(rows, K_values):
+    M = float(row["M"]) if row.get("M", "") not in {"", None} else np.nan
+    # When only one plan is sampled, M has no effect under a constant prefix
+    # duration. Hide the arbitrary optimizer tie-break in that regime.
+    if constant_prefix_time and np.isclose(K, 1.0):
+        M = np.nan
+    M_values.append(M)
+show_M = bool(np.any(np.isfinite(M_values)))
 planning_axis = axes[1]
-prefix_axis = planning_axis.twinx()
 K_line = planning_axis.step(
     times,
     K_values,
@@ -168,19 +223,24 @@ K_line = planning_axis.step(
     color=K_COLOR,
     label=r"$K$",
 )[0]
-M_line = prefix_axis.step(
-    times,
-    M_values,
-    where="post",
-    color=M_COLOR,
-    label=r"$M$",
-)[0]
 planning_axis.set_ylabel(r"$K$", color=K_COLOR)
 planning_axis.tick_params(axis="y", labelcolor=K_COLOR)
-prefix_axis.set_ylabel(r"$M$", color=M_COLOR)
-prefix_axis.tick_params(axis="y", labelcolor=M_COLOR)
-prefix_axis.spines["top"].set_visible(False)
-planning_axis.legend(handles=[K_line, M_line], frameon=False)
+planning_handles = [K_line]
+if show_M:
+    prefix_axis = planning_axis.twinx()
+    M_line = prefix_axis.step(
+        times,
+        M_values,
+        where="post",
+        color=M_COLOR,
+        label=r"$M$",
+    )[0]
+    prefix_axis.set_ylabel(r"$M$", color=M_COLOR)
+    prefix_axis.tick_params(axis="y", labelcolor=M_COLOR)
+    prefix_axis.spines["top"].set_visible(False)
+    prefix_axis.set_ylim(0, T + 1)
+    planning_handles.append(M_line)
+planning_axis.legend(handles=planning_handles, frameon=False)
 
 for axis, key, label in zip(
     axes[2:],
@@ -279,7 +339,6 @@ if args.plot_individuals or args.plot_k or args.plot_prefix_length:
         planning_axis.axvspan(start, end, color=OFFLINE_SHADE, zorder=0)
     for start, end in switch_spans:
         planning_axis.axvspan(start, end, color=SWITCH_SHADE, zorder=0)
-    prefix_axis = planning_axis.twinx()
     K_line = planning_axis.step(
         times,
         K_values,
@@ -288,24 +347,30 @@ if args.plot_individuals or args.plot_k or args.plot_prefix_length:
         linewidth=2.4,
         label=r"$K$",
     )[0]
-    M_line = prefix_axis.step(
-        times,
-        M_values,
-        where="post",
-        color=M_COLOR,
-        linewidth=2.4,
-        label=r"$M$",
-    )[0]
     planning_axis.set_xlabel("elapsed time")
     planning_axis.set_ylabel(r"$K$", color=K_COLOR)
     planning_axis.tick_params(axis="y", labelcolor=K_COLOR)
-    prefix_axis.set_ylabel(r"$M$", color=M_COLOR)
-    prefix_axis.tick_params(axis="y", labelcolor=M_COLOR)
     planning_axis.grid(axis="y", color="#dddddd", linewidth=0.7)
     planning_axis.spines["top"].set_visible(False)
-    prefix_axis.spines["top"].set_visible(False)
-    handles = [K_line, M_line]
-    labels = [r"$K$", r"$M$"]
+    planning_axis.set_ylim(0, max(K_values) + 1)
+    handles = [K_line]
+    labels = [r"$K$"]
+    if show_M:
+        prefix_axis = planning_axis.twinx()
+        M_line = prefix_axis.step(
+            times,
+            M_values,
+            where="post",
+            color=M_COLOR,
+            linewidth=2.4,
+            label=r"$M$",
+        )[0]
+        prefix_axis.set_ylabel(r"$M$", color=M_COLOR)
+        prefix_axis.tick_params(axis="y", labelcolor=M_COLOR)
+        prefix_axis.spines["top"].set_visible(False)
+        prefix_axis.set_ylim(0, T + 1)
+        handles.append(M_line)
+        labels.append(r"$M$")
     if offline_spans:
         handles.append(Patch(facecolor=OFFLINE_SHADE, edgecolor="none"))
         labels.append("offline")

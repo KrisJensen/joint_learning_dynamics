@@ -47,7 +47,7 @@ if len(K_values) != 1 or len(T_values) != 1:
     raise ValueError("prefix-length plots require one fixed K and T")
 K = next(iter(K_values))
 T = next(iter(T_values))
-colors = plt.get_cmap("viridis")(np.linspace(0.12, 0.9, len(rho_values)))
+colors = plt.get_cmap("viridis")(np.linspace(0.1, 0.9, len(rho_values)))
 
 for metric, ylabel in metrics:
     metric_output = output.with_name(

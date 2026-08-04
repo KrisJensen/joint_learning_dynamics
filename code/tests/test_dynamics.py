@@ -15,10 +15,16 @@ simulation = importlib.import_module("learning_dynamics.simulation")
 
 def test_parameter_names_costs_and_M_bound() -> None:
     params = Params(T=6, M=6, delta_on=0.25, delta_off=0.5)
+    assert params.constant_prefix_time is False
     assert params.tau_on == 4.0
     assert params.tau_off == 2.0
     assert params.delta_element == pytest.approx(0.25 / 6)
+    assert params.prefix_time(M=2) == pytest.approx(0.25 * 2 / 6)
     assert params.online_cost(K=3, M=2) == pytest.approx(1.25)
+    constant_prefix = replace(params, constant_prefix_time=True)
+    assert constant_prefix.prefix_time(M=2) == pytest.approx(0.25)
+    assert constant_prefix.prefix_time(M=6) == pytest.approx(0.25)
+    assert constant_prefix.online_cost(K=3, M=2) == pytest.approx(1.75)
     with pytest.raises(ValueError):
         Params(T=5, M=6).validate()
 

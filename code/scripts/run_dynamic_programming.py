@@ -21,6 +21,7 @@ from learning_dynamics import (
     solve_dp_workspace,
     solve_online_dp,
     solve_switching_dp,
+    value_at,
 )
 
 
@@ -53,14 +54,59 @@ def write_result(
     # cheap rollout, so a rollout or CSV failure does not discard the table.
     save_dp_result(table_path, result)
     print(f"Wrote {table_path}")
+    if result.values is None and result.compact_policy is None:
+        write_records(
+            csv_path,
+            [
+                {
+                    "time": 0.0,
+                    "remaining_horizon": result.config.horizon,
+                    "mode": args.initial_mode,
+                    "action": "value_only",
+                    "rho_se": initial.rho_se,
+                    "rho_me": initial.rho_me,
+                    "rho_sm": initial.rho_sm,
+                    "value": value_at(
+                        result,
+                        result.config.horizon,
+                        initial,
+                        args.initial_mode,
+                    ),
+                }
+            ],
+            metadata={
+                "T": result.params.T,
+                "constant_prefix_time": result.params.constant_prefix_time,
+                "C_A": result.params.C_A,
+                "C_T": result.params.C_T,
+                "C_phi": result.params.C_phi,
+                "t_strategy_switch": result.config.t_strategy_switch,
+                "value_storage": "terminal",
+                "policy_storage": "none",
+            },
+        )
+        print(f"Wrote value-only summary {csv_path}")
+        return
     rows = rollout_policy(result, initial, initial_mode=args.initial_mode)
     write_records(
         csv_path,
         rows,
         metadata={
+            "T": result.params.T,
+            "constant_prefix_time": result.params.constant_prefix_time,
             "C_A": result.params.C_A,
             "C_T": result.params.C_T,
             "C_phi": result.params.C_phi,
+            "t_strategy_switch": result.config.t_strategy_switch,
+            "value_storage": (
+                "terminal" if result.values is None else "full"
+            ),
+            "policy_storage": (
+                "compact" if result.compact_policy is not None else "full"
+            ),
+            "policy_state_lookup": (
+                "nearest" if result.compact_policy is not None else "value_interpolation"
+            ),
         },
     )
     print(f"Wrote {csv_path}")
@@ -91,6 +137,25 @@ def main() -> None:
         type=float,
         default=0.1,
         help="fixed macroscopic elapsed time required to switch modes",
+    )
+    parser.add_argument(
+        "--t-strategy-switch",
+        type=float,
+        default=0.0,
+        help=(
+            "fixed elapsed cost of entering the shared online-strategy "
+            "switch state; positive values use rolling value storage"
+        ),
+    )
+    parser.add_argument(
+        "--record-compact-policy",
+        "--record-policy",
+        dest="record_compact_policy",
+        action="store_true",
+        help=(
+            "record two-bit grid decisions for trajectory generation when "
+            "the online strategy-switch cost is positive"
+        ),
     )
     parser.add_argument("--rho-points", type=int, default=30)
     parser.add_argument("--rho-min", type=float, default=0.0)
@@ -139,6 +204,8 @@ def main() -> None:
         M=args.dp_M,
         reward_kind=args.reward_kind,
         t_switch=args.t_switch,
+        t_strategy_switch=args.t_strategy_switch,
+        record_compact_policy=args.record_compact_policy,
         no_modulation=args.no_modulation,
         fixed_wm=args.fixed_wm,
         fixed_rho_me=args.fixed_rho_me,

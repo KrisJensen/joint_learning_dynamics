@@ -20,7 +20,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     add_common_args(parser)
     add_analytical_args(parser)
-    parser.add_argument("--beta-values", default="0,0.5,1,2,3,5,10")
+    parser.add_argument("--beta-values", default="0,0.5,2,5")
     args = parser.parse_args()
     rows = []
     for beta in parse_list(args.beta_values):

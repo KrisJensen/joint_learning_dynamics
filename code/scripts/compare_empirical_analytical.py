@@ -36,6 +36,7 @@ def main() -> None:
     )
     dimensions = parse_list(args.dimensions, int)
     for d in dimensions:
+        print("running with d =", d)
         for replicate in range(args.replicates):
             seed = args.seed + replicate
             record_every = args.record_every or max(
