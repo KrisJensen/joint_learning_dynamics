@@ -8,12 +8,16 @@ from learning_dynamics import (
     DPConfig,
     Params,
     State,
+    additional_planning_time,
     build_dp_workspace,
     load_dp_result,
+    minimum_online_block_time,
+    optimal_action_at,
     rollout_policies,
     save_dp_result,
     solve_dp_workspace,
     solve_online_dp,
+    solve_reward_only_planning_dp,
     solve_switching_dp,
     value_at,
 )
@@ -22,6 +26,120 @@ from learning_dynamics import (
 dynamic_programming = importlib.import_module(
     "learning_dynamics.dynamic_programming"
 )
+
+
+def test_reward_only_planning_dp_matches_generic_shared_transition_solver() -> None:
+    params = Params(
+        T=2,
+        M=1,
+        beta=2.0,
+        delta_on=0.5,
+        delta_off=0.5,
+        constant_prefix_time=True,
+        gh_order=8,
+    )
+    config = DPConfig(
+        horizon=4.0,
+        step_size=1.0,
+        rho_points=3,
+        rho_max=0.8,
+        K_max=2,
+        M=None,
+        t_switch=0.5,
+        fixed_wm=True,
+        fixed_rho_me=0.5,
+    )
+    reference = solve_online_dp(params, config)
+    counterfactual = solve_reward_only_planning_dp(reference)
+
+    for table, original in zip(
+        counterfactual.tables,
+        reference.tables,
+        strict=True,
+    ):
+        np.testing.assert_allclose(table.reward, original.reward)
+        np.testing.assert_allclose(
+            table.delta,
+            counterfactual.tables[0].delta,
+        )
+
+    prepared = {
+        table.spec: dynamic_programming._prepare_transition(
+            table,
+            counterfactual.points,
+            counterfactual.params,
+            counterfactual.config,
+            0.0,
+            counterfactual.interpolator,
+        )
+        for table in counterfactual.tables
+    }
+    workspace = dynamic_programming.DPWorkspace(
+        counterfactual.config,
+        counterfactual.params,
+        counterfactual.points,
+        counterfactual.interpolator,
+        counterfactual.tables,
+        prepared,
+    )
+    generic = solve_dp_workspace(workspace, variant="online")
+    np.testing.assert_allclose(counterfactual.values, generic.values)
+    np.testing.assert_array_equal(counterfactual.policy, generic.policy)
+
+    initial = State(0.2, 0.5, 0.1)
+    action = optimal_action_at(counterfactual, initial, config.horizon)
+    rollout = dynamic_programming.rollout_policy(counterfactual, initial)
+    assert action is not None
+    assert action.name == rollout[0]["action"]
+
+
+def test_additional_planning_time_uses_constant_prefix_baseline() -> None:
+    params = Params(
+        T=6,
+        M=6,
+        delta_on=0.1,
+        constant_prefix_time=True,
+    )
+    one_short_burst = [
+        {"action": "online(K=1,M=6)", "K": 1, "M": 6},
+        {"action": "online(K=6,M=3)", "K": 6, "M": 3},
+        {"action": "online(K=2,M=1)", "K": 2, "M": 1},
+        {"action": "offline", "K": "", "M": ""},
+    ]
+    threshold = minimum_online_block_time(params, step_size=0.2)
+    planning_time = additional_planning_time(
+        one_short_burst,
+        params,
+        step_size=0.2,
+    )
+
+    assert threshold == pytest.approx(0.22)
+    assert planning_time == pytest.approx(0.12)
+    assert planning_time < threshold
+
+    exactly_one_block = one_short_burst + [
+        {"action": "online(K=6,M=3)", "K": 6, "M": 3},
+    ]
+    assert additional_planning_time(
+        exactly_one_block,
+        params,
+        step_size=0.2,
+    ) == pytest.approx(threshold)
+
+
+def test_additional_planning_time_respects_proportional_M() -> None:
+    params = Params(T=4, M=1, delta_on=0.4)
+    rollout = [
+        {"action": "online(K=2,M=3)", "K": 2, "M": 3},
+        {"action": "online(K=3,M=1)", "K": 3, "M": 1},
+    ]
+
+    assert additional_planning_time(
+        rollout,
+        params,
+        step_size=0.5,
+    ) == pytest.approx(0.35)
+    assert minimum_online_block_time(params, 0.5) == pytest.approx(0.55)
 
 
 def test_constant_prefix_time_gives_all_M_equal_dp_duration() -> None:

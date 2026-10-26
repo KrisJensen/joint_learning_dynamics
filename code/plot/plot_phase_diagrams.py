@@ -20,7 +20,8 @@ CATEGORY_ORDER = (
 CATEGORY_COLORS = (
     "#4c78a8",
     "#72b7b2",
-    "#f58518",
+    #"#f58518",
+    "#e45756",
     "#e45756",
 )
 RELATIVE_EPS = 1e-14
@@ -239,6 +240,81 @@ def value_category_figure(rows: list[dict], threshold: float):
     return figure
 
 
+def rollout_category_figure(rows: list[dict], threshold: float):
+    """Build the individual realised-rollout categorisation figure."""
+
+    extent, category_grid, _, _, _ = phase_grids(rows, threshold)
+    category_cmap, category_norm = category_scale()
+    figure, axis = plt.subplots(figsize=(4.8, 4.8))
+    axis.imshow(
+        category_grid,
+        origin="lower",
+        aspect="auto",
+        cmap=category_cmap,
+        norm=category_norm,
+        extent=extent,
+    )
+    axis.set_xlabel(r"$\rho_{se}(0)$")
+    axis.set_ylabel(r"$\rho_{me}(0)$")
+    return figure
+
+
+def planning_time_histogram(rows: list[dict]):
+    """Plot episode-level additional planning time across initial states."""
+
+    values = np.asarray(
+        [float(row["additional_planning_time"]) for row in rows],
+        dtype=np.float64,
+    )
+    thresholds = np.asarray(
+        [float(row["planning_time_threshold"]) for row in rows],
+        dtype=np.float64,
+    )
+    if (
+        not np.all(np.isfinite(values))
+        or np.any(values < -1e-12)
+        or not np.all(np.isfinite(thresholds))
+        or np.any(thresholds <= 0.0)
+    ):
+        raise ValueError("planning-time values and thresholds must be valid")
+    threshold = float(thresholds[0])
+    if not np.allclose(thresholds, threshold, atol=1e-12, rtol=1e-12):
+        raise ValueError("planning-time threshold varies within one setting")
+
+    upper = max(float(np.max(values)), threshold)
+    full_edges = np.linspace(0.0, 1.05 * upper, 31)
+    zoom_edges = np.linspace(0.0, 0.52, 27)-0.01
+    figure, axes = plt.subplots(1, 2, figsize=(10.0, 3.8))
+    clipped_values = np.maximum(values, 0.0)
+    for axis, bin_edges, title in (
+        (axes[0], full_edges, "full range"),
+        (axes[1], zoom_edges, "zoom"),
+    ):
+        axis.hist(
+            clipped_values,
+            bins=bin_edges,
+            color="#4c78a8",
+            edgecolor="white",
+            linewidth=0.5,
+        )
+        if bin_edges[0] <= threshold <= bin_edges[-1]:
+            axis.axvline(
+                threshold,
+                color="black",
+                linestyle="--",
+                linewidth=1.5,
+                label=r"$K=1, M=1$ block",
+            )
+            axis.legend(frameon=False)
+        axis.set_title(title)
+        axis.set_xlabel("episode additional planning time")
+        axis.set_ylabel("rollouts")
+        axis.grid(axis="y", color="#dddddd", linewidth=0.7)
+        axis.spines[["top", "right"]].set_visible(False)
+    axes[1].set_xlim(zoom_edges[0], zoom_edges[-1])
+    return figure
+
+
 def number_slug(value: float) -> str:
     """Format a numeric setting for use in an output filename."""
 
@@ -310,6 +386,12 @@ rows = select_setting_values(rows, 0, requested_horizons, "initial horizons")
 rows = select_setting_values(rows, 1, requested_switch_times, "switch times")
 if not rows:
     raise ValueError("no phase-diagram rows match the requested settings")
+planning_columns = {"additional_planning_time", "planning_time_threshold"}
+if any(not planning_columns.issubset(row) for row in rows):
+    raise ValueError(
+        "phase results do not contain rollout planning times; rerun "
+        "phase_diagram_initial.py with the current implementation"
+    )
 settings = sorted(
     {setting_key(row) for row in rows},
     key=lambda item: (
@@ -340,25 +422,48 @@ else:
             plt.close(figure)
 print(f"Wrote {output}")
 
+histogram_output = output.with_name(
+    f"{output.stem}_planning_time_histogram{output.suffix}"
+)
+if len(settings) == 1:
+    figure = planning_time_histogram(rows)
+    figure.tight_layout()
+    figure.savefig(histogram_output, dpi=args.dpi, transparent=True)
+    plt.close(figure)
+else:
+    with PdfPages(histogram_output) as pdf:
+        for setting in settings:
+            setting_rows = [row for row in rows if setting_key(row) == setting]
+            figure = planning_time_histogram(setting_rows)
+            title = setting_title(setting)
+            if title is not None:
+                figure.suptitle(title)
+                figure.tight_layout(rect=(0, 0, 1, 0.94))
+            else:
+                figure.tight_layout()
+            pdf.savefig(figure, dpi=args.dpi, transparent=True)
+            plt.close(figure)
+print(f"Wrote {histogram_output}")
+
 individual_directory = output.parent / (
     f"{output.stem}_value_difference_categories"
 )
 individual_directory.mkdir(parents=True, exist_ok=True)
+rollout_directory = output.parent / f"{output.stem}_rollout_categories"
+rollout_directory.mkdir(parents=True, exist_ok=True)
 for setting in settings:
     setting_rows = [row for row in rows if setting_key(row) == setting]
-    figure = value_category_figure(
-        setting_rows,
-        args.value_category_threshold,
-    )
-    # title = setting_title(setting)
-    # if title is not None:
-    #     figure.suptitle(title)
-    #     figure.tight_layout(rect=(0, 0, 1, 0.93))
-    # else:
-    figure.tight_layout()
-    individual_output = individual_directory / (
-        f"{setting_filename(setting)}{output.suffix}"
-    )
-    figure.savefig(individual_output, dpi=args.dpi, transparent=True)
-    plt.close(figure)
-    print(f"Wrote {individual_output}")
+    filename = f"{setting_filename(setting)}{output.suffix}"
+    for directory, figure_function in (
+        (individual_directory, value_category_figure),
+        (rollout_directory, rollout_category_figure),
+    ):
+        figure = figure_function(
+            setting_rows,
+            args.value_category_threshold,
+        )
+        figure.tight_layout()
+        individual_output = directory / filename
+        figure.savefig(individual_output, dpi=args.dpi, transparent=True)
+        plt.close(figure)
+        print(f"Wrote {individual_output}")

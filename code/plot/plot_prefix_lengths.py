@@ -47,9 +47,9 @@ def condition_style(rows: list[dict], fixed_colors: dict[float, tuple]) -> dict:
             "alpha": 0.9,
         }
     if group == "eta_2f_optimal_M":
-        return {"color": "#0072b2", "linewidth": 2.5}
+        return {"color":  "#d55e00", "linewidth": 2.5}
     if group == "eta_3f_only":
-        return {"color":  "#d55e00", "linestyle": "-", "linewidth": 2.5}
+        return {"color": "#0072b2", "linestyle": "-", "linewidth": 2.5}
     if group == "joint_optimal_M":
         return {
             "color": "#000000",
@@ -219,8 +219,8 @@ if args.include_joint:
     figure, axis = plt.subplots(figsize=(5.4, 3.8))
     shade_offline(axis, offline_spans(joint_records))
     rate_styles = {
-        "eta_2f": (r"$\eta_{2f}$", "#0072b2"),
-        "eta_3f": (r"$\eta_{3f}$", "#d55e00"),
+        "eta_2f": (r"$\eta_{2f}$", "#d55e00"),
+        "eta_3f": (r"$\eta_{3f}$", "#0072b2"),
     }
     line_styles = ("-", "--", ":", "-.")
     multiple_joint_groups = len(joint_groups) > 1
@@ -249,7 +249,7 @@ if args.include_joint:
             )
     axis.set_xlabel("elapsed time")
     axis.set_ylabel("learning rate")
-    axis.grid(axis="y", color="#dddddd", linewidth=0.7)
+    #axis.grid(axis="y", color="#dddddd", linewidth=0.7)
     axis.spines[["top", "right"]].set_visible(False)
     axis.legend(frameon=False)
     figure.tight_layout()

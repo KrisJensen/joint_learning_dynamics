@@ -35,7 +35,7 @@ sp.call(["python", ROOT + "scripts/compare_policy_regimes.py", "--output-subdir"
 sp.call(["python", ROOT + "plot/plot_policy_regimes.py", "--output-subdir", subdir] )
 
 #%% compare action correctness probabilities for different prefix lengths
-sp.call(["python", ROOT + "scripts/compare_prefix_length_observables.py", "--output-subdir", subdir] )
+sp.call(["python", ROOT + "scripts/compare_prefix_length_observables.py", "--output-subdir", subdir, prefix_time] )
 sp.call(["python", ROOT + "plot/plot_prefix_length_observables.py", "--output-subdir", subdir] )
 
 
@@ -54,10 +54,14 @@ sp.call(["python", ROOT + "plot/plot_prefix_lengths.py", "--output-subdir", subd
 #%% now run dynamic programming
 
 T = "6"
-shared_args = ["python", ROOT + "scripts/run_dynamic_programming.py", "--temperature-mode", "optimal", "--dp-step-size", "0.10", "--T", T, "--horizon", "20", "--learning-rate-mode", "optimal", "--eta-max", "1.0", "--output-subdir", subdir, "--delta-on", "0.1", "--delta-off", "0.1", "--dp-K-max", "10", "--rho-points", "30", "--t-switch", "1.0", prefix_time]
+shared_args = ["python", ROOT + "scripts/run_dynamic_programming.py", "--temperature-mode", "optimal", "--dp-step-size", "0.10", "--T", T, "--horizon", "20", "--learning-rate-mode", "optimal", "--eta-max", "1.0", "--output-subdir", subdir, "--delta-on", "0.1", "--delta-off", "0.1", "--dp-K-max", "20", "--rho-points", "30", "--t-switch", "1.0", prefix_time]
 
 # solve online-only and switching combined DPs from one action workspace
 sp.call(shared_args+["--variant", "both", "--online-suffix", f"joint", "--switching-suffix", f"joint"])
+
+# Compute the planning-for-immediate-reward-only policy once, then query it at
+# every state and remaining horizon in both joint-DP rollouts.
+sp.call(["python", ROOT + "scripts/compute_reward_only_counterfactual_k.py", "--output-subdir", subdir, "--suffix", "joint"])
 
 sp.call(["python", ROOT + "plot/plot_dynamic_programming.py", "--variant", "online", "--suffix", f"joint", "--output-subdir", subdir, "--plot-individuals"])
 sp.call(["python", ROOT + "plot/plot_dynamic_programming.py", "--variant", "switching", "--suffix", f"joint", "--output-subdir", subdir, "--plot-individuals"])
@@ -85,9 +89,9 @@ rho_me_values = ",".join(
 T = "6"
 suffix = "joint"
 
-sp.run(["python", ROOT+"scripts/phase_diagram_initial.py", "--switch-times","1.0, 2.0, 3.0","--T",T,"--temperature-mode", "constant",
+sp.run(["python", ROOT+"scripts/phase_diagram_initial.py", "--switch-times","1.0, 2.0, 3.0, 4.0","--T",T,"--temperature-mode", "constant",
         "--beta","3","--initial-horizons","10,15,20","--dp-step-size","0.2","--rho-points","30","--dp-K-max","10", "--suffix", suffix, "--learning-rate-mode", "optimal", "--eta-max", "1.0", "--delta-on","0.1","--delta-off","0.1", prefix_time,
         "--rho-se-values", rho_se_values, "--rho-me-values", rho_me_values, "--output-subdir", subdir])
 
-sp.run(["python", ROOT+"plot/plot_phase_diagrams.py", "--output-subdir", subdir, "--switch-times","1.0,2.0,3.0", "--suffix", suffix, "--initial-horizons","10,15,20"])
+sp.run(["python", ROOT+"plot/plot_phase_diagrams.py", "--output-subdir", subdir, "--suffix", suffix, "--initial-horizons","10,15,20"])
 sp.run(["python", ROOT+"plot/plot_phase_examples.py", "--examples", "0.05,0.05;0.05,0.9;0.5,0.9", "--suffix", suffix, "--output-subdir", subdir])

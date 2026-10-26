@@ -23,17 +23,15 @@ def main() -> None:
     # learning rate. Thus each rate below is half the corresponding legacy
     # value of 2.5, including the optimization cap (legacy value 20).
     parser.set_defaults(
-        schedule="online:150",
+        schedule="online:250",
         T=6,
         K=5,
         K_mode="constant",
-        beta=2.0,
+        beta=3.0,
         beta_max=20.0,
         temperature_mode="constant",
         eta_2f=0.0,
         eta_3f=1.0,
-        eta_off=1.0,
-        eta_wm=1.0,
         eta_max=1.0,
         delta_on=0.05,
         gh_order=25,

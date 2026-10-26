@@ -13,7 +13,9 @@ from _common import (
 from learning_dynamics import (
     DPConfig,
     State,
+    additional_planning_time,
     build_dp_workspace,
+    minimum_online_block_time,
     rollout_policies,
     save_dp_result,
     solve_dp_workspace,
@@ -192,6 +194,23 @@ def main() -> None:
                         ],
                         default=0,
                     )
+                    planning_time = additional_planning_time(
+                        rollout,
+                        full.params,
+                        full.config.step_size,
+                    )
+                    planning_time_threshold = minimum_online_block_time(
+                        full.params,
+                        full.config.step_size,
+                    )
+                    planning_tolerance = 1e-12 * max(
+                        1.0,
+                        planning_time_threshold,
+                    )
+                    uses_planning = (
+                        planning_time
+                        >= planning_time_threshold - planning_tolerance
+                    )
                     rows.append(
                         {
                             "analysis": "initial_correlations",
@@ -205,10 +224,13 @@ def main() -> None:
                             "online_only_reward_rate": online_value / horizon,
                             "k1_switching_reward_rate": k1_value / horizon,
                             "uses_offline": uses_offline,
+                            "uses_planning": uses_planning,
                             "max_K": max_K,
+                            "additional_planning_time": planning_time,
+                            "planning_time_threshold": planning_time_threshold,
                             "category": (
                                 f"{'offline' if uses_offline else 'online'}_"
-                                f"{'planning' if max_K > 1 else 'K1'}"
+                                f"{'planning' if uses_planning else 'K1'}"
                             ),
                             "table_path": str(table_path),
                         }
